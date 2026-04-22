@@ -4,7 +4,7 @@ import { KULA } from "../../constants/Styles";
 import { Ionicons } from "@expo/vector-icons";
 import Button from "../Button";
 
-function NotificationCard({ notification }) {
+function NotificationCard({ notification, onWave, isWaved, isWaving }) {
   if (!notification) return null;
 
   const isLikeOrComment =
@@ -55,7 +55,9 @@ function NotificationCard({ notification }) {
       )}
       {notification.mode === "FOLLOW" && (
         <Button
-          title="Wave 👋"
+          title={isWaved ? "Waved 👋" : isWaving ? "Waving..." : "Wave 👋"}
+          onPress={() => onWave && onWave(notification)}
+          disabled={isWaved || isWaving}
           secondary
           titleStyle={{ fontSize: 13, paddingVertical: 10, paddingHorizontal: 14 }}
         />

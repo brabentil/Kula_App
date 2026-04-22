@@ -8,6 +8,7 @@ import {
   Image,
   FlatList,
   StatusBar,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,11 +17,12 @@ import FAB from "../components/UI/FAB";
 import { useNavigation } from "@react-navigation/native";
 import { AuthContext } from "../store/auth-context";
 import { fetchNearbyUsers } from "../services/repositories/discoveryRepository";
+import { sendWave } from "../services/repositories/wavesRepository";
 
 const FILTERS = ["New Arrivals", "Same Country", "Same Interests", "Nearby"];
 
 // ── Person card ────────────────────────────────────────────────────────────────
-function PersonCard({ person }) {
+function PersonCard({ person, onWave, isWaved, isWaving }) {
   const navigation = useNavigation();
   return (
     <View style={styles.personCard}>
@@ -51,8 +53,15 @@ function PersonCard({ person }) {
 
       {/* Action buttons */}
       <View style={styles.actionsRow}>
-        <TouchableOpacity style={styles.waveBtn} activeOpacity={0.75}>
-          <Text style={styles.waveBtnText}>Wave</Text>
+        <TouchableOpacity
+          style={[styles.waveBtn, (isWaved || isWaving) && styles.waveBtnActive]}
+          activeOpacity={0.75}
+          onPress={() => onWave && onWave(person)}
+          disabled={isWaved || isWaving}
+        >
+          <Text style={[styles.waveBtnText, (isWaved || isWaving) && styles.waveBtnTextActive]}>
+            {isWaved ? "Waved 👋" : isWaving ? "Waving..." : "Wave"}
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.profileBtn}
@@ -74,6 +83,8 @@ export default function FindFriendsScreen() {
   const [people, setPeople] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [sourceLabel, setSourceLabel] = useState("remote");
+  const [wavedUserIds, setWavedUserIds] = useState([]);
+  const [wavingUserIds, setWavingUserIds] = useState([]);
 
   useEffect(() => {
     let active = true;
@@ -105,6 +116,31 @@ export default function FindFriendsScreen() {
       active = false;
     };
   }, [authCtx.userData]);
+
+  async function handleWave(person) {
+    const fromUserId = authCtx.userData?._id || authCtx.userData?.id;
+    const toUserId = person?._id || person?.id;
+    if (!fromUserId || !toUserId) {
+      return;
+    }
+    setWavingUserIds((prev) => (prev.includes(toUserId) ? prev : [...prev, toUserId]));
+
+    const result = await sendWave({
+      fromUserId,
+      fromUserName: authCtx.userData?.fullName,
+      fromUserAvatar: authCtx.userData?.picturePath,
+      toUserId,
+      toUserName: person?.fullName,
+    });
+    if (result.ok) {
+      setWavedUserIds((prev) => (prev.includes(toUserId) ? prev : [...prev, toUserId]));
+      setWavingUserIds((prev) => prev.filter((id) => id !== toUserId));
+      return;
+    }
+    setWavingUserIds((prev) => prev.filter((id) => id !== toUserId));
+
+    Alert.alert("Wave failed", result.error?.message || "Could not send wave right now.");
+  }
 
   const filteredPeople = useMemo(() => {
     const currentUser = authCtx.userData || {};
@@ -180,7 +216,14 @@ export default function FindFriendsScreen() {
             <View style={{ height: 8 }} />
           </>
         )}
-        renderItem={({ item }) => <PersonCard person={item} />}
+        renderItem={({ item }) => (
+          <PersonCard
+            person={item}
+            onWave={handleWave}
+            isWaved={wavedUserIds.includes(item._id || item.id)}
+            isWaving={wavingUserIds.includes(item._id || item.id)}
+          />
+        )}
         ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
         ListEmptyComponent={
           !isLoading ? <Text style={styles.emptyText}>No people found right now.</Text> : null
@@ -280,7 +323,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: "center",
   },
+  waveBtnActive: {
+    backgroundColor: KULA.teal,
+  },
   waveBtnText: { fontSize: 15, fontWeight: "600", color: KULA.teal },
+  waveBtnTextActive: { color: KULA.white },
   profileBtn: {
     flex: 1,
     backgroundColor: KULA.teal,

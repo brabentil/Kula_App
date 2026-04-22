@@ -8,6 +8,7 @@ import {
   Image,
   TouchableOpacity,
   StatusBar,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,7 +27,13 @@ function ThreadRow({ thread }) {
   return (
     <TouchableOpacity
       style={styles.row}
-      onPress={() => navigation.navigate("ChatScreen", { chatId: thread._id, contactName: thread.contactName })}
+      onPress={() =>
+        navigation.navigate("ChatScreen", {
+          chatId: thread._id,
+          contactName: thread.contactName,
+          contactInitials: thread.contactInitials,
+        })
+      }
       activeOpacity={0.7}
     >
       {/* Avatar + unread badge */}
@@ -53,12 +60,30 @@ function ThreadRow({ thread }) {
   );
 }
 
+function toMillis(value) {
+  if (!value) return 0;
+  if (typeof value?.toDate === "function") return value.toDate().getTime();
+  if (typeof value === "number") return value;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatThreadTime(value) {
+  const ms = toMillis(value);
+  if (!ms) {
+    return "";
+  }
+  const date = new Date(ms);
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 // ── Messages Screen ────────────────────────────────────────────────────────────
 export default function MessagesScreen() {
   const navigation = useNavigation();
   const authCtx = useContext(AuthContext);
   const [search, setSearch] = useState("");
   const [threads, setThreads] = useState([]);
+  const [isLoadingThreads, setIsLoadingThreads] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -66,23 +91,31 @@ export default function MessagesScreen() {
     async function loadThreads() {
       const userId = authCtx.userData?._id || authCtx.userData?.id;
       if (!userId) {
+        if (active) {
+          setThreads([]);
+          setIsLoadingThreads(false);
+        }
         return;
       }
 
+      setIsLoadingThreads(true);
       const remoteResult = await fetchThreads(userId, 100);
       if (active && remoteResult.ok && remoteResult.data.length > 0) {
         const mapped = remoteResult.data.map((item) => ({
           _id: item.id || item._id,
-          contactName: item.title || item.name || "Chat",
-          preview: item.lastMessageText || "Open chat",
-          timestamp: "Now",
+          contactName: item.contactName || item.title || item.name || "Chat",
+          contactInitials: item.contactInitials || "CU",
+          preview: item.preview || item.lastMessage || item.lastMessageText || "Open chat",
+          timestamp: formatThreadTime(item.lastMessageAt || item.updatedAt || item.createdAt),
           unread: Number(item.unreadCount || 0),
           image:
+            item.contactAvatar ||
             item.image ||
             "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=200&q=80",
           isGroup: Boolean(item.isGroup),
         }));
         setThreads(mapped);
+        setIsLoadingThreads(false);
         return;
       }
 
@@ -90,16 +123,27 @@ export default function MessagesScreen() {
       if (active && cachedResult.ok && cachedResult.data.length > 0) {
         const mapped = cachedResult.data.map((item) => ({
           _id: item.id,
-          contactName: item.payload?.title || item.payload?.name || "Chat",
-          preview: item.payload?.lastMessageText || "Open chat",
-          timestamp: "Now",
+          contactName: item.payload?.contactName || item.payload?.title || item.payload?.name || "Chat",
+          contactInitials: item.payload?.contactInitials || "CU",
+          preview:
+            item.payload?.preview ||
+            item.payload?.lastMessage ||
+            item.payload?.lastMessageText ||
+            "Open chat",
+          timestamp: formatThreadTime(
+            item.payload?.lastMessageAt || item.payload?.updatedAt || item.payload?.createdAt
+          ),
           unread: Number(item.payload?.unreadCount || 0),
           image:
+            item.payload?.contactAvatar ||
             item.payload?.image ||
             "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=200&q=80",
           isGroup: Boolean(item.payload?.isGroup),
         }));
         setThreads(mapped);
+      }
+      if (active) {
+        setIsLoadingThreads(false);
       }
     }
 
@@ -146,6 +190,18 @@ export default function MessagesScreen() {
             <View style={{ height: 8 }} />
           </>
         )}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            {isLoadingThreads ? (
+              <>
+                <ActivityIndicator size="small" color={KULA.teal} />
+                <Text style={styles.emptyText}>Loading messages...</Text>
+              </>
+            ) : (
+              <Text style={styles.emptyText}>No messages yet.</Text>
+            )}
+          </View>
+        }
         renderItem={({ item, index }) => (
           <View>
             <ThreadRow thread={item} />
@@ -182,6 +238,16 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   searchInput: { flex: 1, fontSize: 15, color: KULA.brown },
+  emptyWrap: {
+    paddingHorizontal: 20,
+    paddingVertical: 28,
+    alignItems: "center",
+    gap: 8,
+  },
+  emptyText: {
+    color: KULA.muted,
+    fontSize: 14,
+  },
 
   row: {
     flexDirection: "row",

@@ -94,6 +94,7 @@ function normalizeUserProfilePayload(payload = {}) {
     originCountry: payload.originCountry || "",
     originFlag: payload.originFlag || "",
     currentCity: payload.currentCity || "",
+    location: payload.location || null,
     arrivalYear: payload.arrivalYear || null,
     interests: normalizeArrayField(payload.interests),
     communities: normalizeArrayField(payload.communities),

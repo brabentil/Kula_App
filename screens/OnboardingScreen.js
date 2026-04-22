@@ -23,6 +23,7 @@ import {
   roundLocationCoordinates,
 } from "../services/location/locationService";
 import { saveUserDiscoveryLocation } from "../services/repositories/discoveryRepository";
+import { upsertUserProfile } from "../services/firebase/firestoreService";
 
 const INTERESTS = [
   "Food", "Sports", "Tech", "Music",
@@ -101,6 +102,21 @@ export default function OnboardingScreen() {
   }
 
   async function finishOnboarding() {
+    const onboardingProfile = {
+      fullName: name ? String(name).trim() : undefined,
+      originCountry: country ? String(country).trim() : undefined,
+      currentCity: selectedCity ? String(selectedCity).trim() : undefined,
+      interests: selectedInterests,
+    };
+    const userId = authCtx.userData?._id || authCtx.userData?.id;
+
+    if (userId) {
+      await upsertUserProfile(userId, onboardingProfile);
+      authCtx.updateUserData(onboardingProfile);
+    } else {
+      await authCtx.setPendingOnboardingProfile(onboardingProfile);
+    }
+
     await authCtx.markOnboardingComplete();
     navigation.navigate("LoginScreen");
   }
@@ -154,6 +170,7 @@ export default function OnboardingScreen() {
         setLocationMessage("Location was captured but could not be saved. You can continue.");
         return;
       }
+      authCtx.updateUserData({ location: locationPayload });
     }
 
     setLocationStatus("granted");

@@ -7,12 +7,15 @@ import {
   TouchableOpacity,
   Image,
   StatusBar,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { KULA } from "../constants/Styles";
 import FAB from "../components/UI/FAB";
+import { AuthContext } from "../store/auth-context";
+import { sendWave } from "../services/repositories/wavesRepository";
 
 // ── Mock profile data for a visited user ──────────────────────────────────────
 const PROFILE_USER = {
@@ -43,9 +46,36 @@ function InterestTag({ label }) {
 export default function UsersProfileScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const authCtx = useContext(AuthContext);
   const [waved, setWaved] = useState(false);
+  const [isWaving, setIsWaving] = useState(false);
   const routeUser = route?.params?.user;
   const user = routeUser ? { ...PROFILE_USER, ...routeUser } : PROFILE_USER;
+
+  async function handleWave() {
+    const fromUserId = authCtx.userData?._id || authCtx.userData?.id;
+    const toUserId = user?._id || user?.id;
+    if (!fromUserId || !toUserId) {
+      return;
+    }
+    setIsWaving(true);
+
+    const result = await sendWave({
+      fromUserId,
+      fromUserName: authCtx.userData?.fullName,
+      fromUserAvatar: authCtx.userData?.picturePath,
+      toUserId,
+      toUserName: user?.fullName,
+    });
+    if (result.ok) {
+      setWaved(true);
+      setIsWaving(false);
+      return;
+    }
+    setIsWaving(false);
+
+    Alert.alert("Wave failed", result.error?.message || "Could not send wave right now.");
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -93,11 +123,12 @@ export default function UsersProfileScreen() {
           <View style={styles.actionButtons}>
             <TouchableOpacity
               style={[styles.waveBtn, waved && styles.waveBtnActive]}
-              onPress={() => setWaved((v) => !v)}
+              onPress={handleWave}
               activeOpacity={0.85}
+              disabled={waved || isWaving}
             >
               <Text style={styles.waveBtnText}>
-                {waved ? "Waved 👋" : "Wave"}
+                {waved ? "Waved 👋" : isWaving ? "Waving..." : "Wave"}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity

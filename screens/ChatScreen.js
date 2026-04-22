@@ -109,6 +109,7 @@ const ChatScreen = ({ navigation, route }) => {
                 sender={sender}
                 text={item?.text}
                 time={item?.createdAt}
+                incomingInitials={route?.params?.contactInitials || "CU"}
               />
             </View>
           );

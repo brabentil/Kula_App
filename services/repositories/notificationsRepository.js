@@ -57,6 +57,7 @@ function normalizeNotification(item = {}, index = 0) {
 
   return {
     _id: String(id),
+    fromId: item.fromId || item.actorId || "",
     mode,
     fromName: item.fromName || item.actorName || "Community member",
     fromPic:

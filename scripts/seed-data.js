@@ -32,6 +32,19 @@ const INTEREST_GROUPS = [
   ["Art", "Music", "Culture"],
 ];
 
+const CITY_COORDINATES = {
+  Accra: { latitude: 5.6037, longitude: -0.187 },
+  Lagos: { latitude: 6.5244, longitude: 3.3792 },
+  Nairobi: { latitude: -1.2921, longitude: 36.8219 },
+  Dakar: { latitude: 14.7167, longitude: -17.4677 },
+  Kumasi: { latitude: 6.6885, longitude: -1.6244 },
+  "Cape Town": { latitude: -33.9249, longitude: 18.4241 },
+  Bamako: { latitude: 12.6392, longitude: -8.0029 },
+  Casablanca: { latitude: 33.5731, longitude: -7.5898 },
+  Abuja: { latitude: 9.0765, longitude: 7.3986 },
+  Tema: { latitude: 5.6698, longitude: -0.0166 },
+};
+
 function id(prefix, index) {
   return "seed_" + prefix + "_" + String(index).padStart(2, "0");
 }
@@ -77,6 +90,7 @@ function buildUsers(nowMs) {
         communities: [],
         friends: [],
         eventsAttended: index % 5,
+        location: CITY_COORDINATES[city] || null,
         createdAt: daysAgo(nowMs, 45 - index),
         updatedAt: daysAgo(nowMs, index % 7),
       },

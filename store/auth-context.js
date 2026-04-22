@@ -19,6 +19,7 @@ const AUTH_TOKEN_KEY = "kula_auth_token";
 const AUTH_USER_KEY = "kula_auth_user";
 const AUTH_PENDING_EMAIL_KEY = "kula_pending_email_link";
 const ONBOARDING_COMPLETE_KEY = "kula_onboarding_complete";
+const PENDING_ONBOARDING_PROFILE_KEY = "kula_pending_onboarding_profile";
 
 function ok(data) {
   return { ok: true, data, error: null };
@@ -113,6 +114,38 @@ async function clearPendingEmail() {
   }
 }
 
+async function persistPendingOnboardingProfile(profile = {}) {
+  try {
+    await SecureStore.setItemAsync(
+      PENDING_ONBOARDING_PROFILE_KEY,
+      JSON.stringify(profile || {})
+    );
+    return ok(true);
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+async function readPendingOnboardingProfile() {
+  try {
+    const raw = await SecureStore.getItemAsync(PENDING_ONBOARDING_PROFILE_KEY);
+    if (!raw) {
+      return null;
+    }
+    return JSON.parse(raw);
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function clearPendingOnboardingProfile() {
+  try {
+    await SecureStore.deleteItemAsync(PENDING_ONBOARDING_PROFILE_KEY);
+  } catch (_error) {
+    // Ignore cleanup failures on unsupported environments.
+  }
+}
+
 export const AuthContext = createContext({
   updateUserData: () => {},
   restoreSession: async () => ok(null),
@@ -127,6 +160,7 @@ export const AuthContext = createContext({
   logout: async () => ok(true),
   markOnboardingComplete: async () => ok(true),
   syncSessionUser: async () => ok(null),
+  setPendingOnboardingProfile: async () => ok(true),
 });
 
 function AuthContentProvider({ children }) {
@@ -158,6 +192,7 @@ function AuthContentProvider({ children }) {
       const normalized = normalizeUserData(authUser);
       const userId = normalized._id || normalized.id;
       let profileData = null;
+      const pendingOnboardingProfile = await readPendingOnboardingProfile();
 
       if (userId) {
         const upsertResult = await upsertUserProfile(userId, {
@@ -165,6 +200,7 @@ function AuthContentProvider({ children }) {
           username: normalized.username,
           email: normalized.email,
           picturePath: normalized.picturePath,
+          ...(pendingOnboardingProfile || {}),
         });
         if (!upsertResult.ok) {
           console.warn("User profile upsert failed", upsertResult.error);
@@ -176,12 +212,16 @@ function AuthContentProvider({ children }) {
       const nextUserData = {
         ...normalized,
         ...(profileData || {}),
+        ...(pendingOnboardingProfile || {}),
         _id: profileData?._id || normalized._id,
         id: profileData?.id || normalized.id,
       };
       setUserData(nextUserData);
       setIsAuthenticated(true);
       await persistSession(authUser, nextUserData);
+      if (pendingOnboardingProfile) {
+        await clearPendingOnboardingProfile();
+      }
       return ok(nextUserData);
     } catch (error) {
       setIsAuthenticated(false);
@@ -294,6 +334,7 @@ function AuthContentProvider({ children }) {
     await logoutRepository();
     await clearPersistedSession();
     await clearPendingEmail();
+    await clearPendingOnboardingProfile();
     setIsAuthenticated(false);
     setUserData(EMPTY_USER);
     return ok(true);
@@ -305,6 +346,10 @@ function AuthContentProvider({ children }) {
       persistSession(null, next);
       return next;
     });
+  }
+
+  async function setPendingOnboardingProfile(profile = {}) {
+    return persistPendingOnboardingProfile(profile);
   }
 
   return (
@@ -323,6 +368,7 @@ function AuthContentProvider({ children }) {
         restoreSession,
         markOnboardingComplete,
         syncSessionUser,
+        setPendingOnboardingProfile,
       }}
     >
       {children}

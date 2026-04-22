@@ -2,6 +2,8 @@ import {
   createChatMessage,
   getChatMessages,
   getCollectionDocuments,
+  getUserProfile,
+  updateCollectionDocument,
 } from "../firebase/firestoreService";
 import {
   listCacheRecords,
@@ -27,29 +29,141 @@ function ok(data) {
   return { ok: true, data, error: null };
 }
 
+function toMillis(value) {
+  if (!value) {
+    return 0;
+  }
+  if (typeof value?.toDate === "function") {
+    return value.toDate().getTime();
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function initialsFromName(name) {
+  return String(name || "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
+}
+
+async function resolveParticipantProfiles(threads = [], currentUserId) {
+  const participantIds = new Set();
+  threads.forEach((item) => {
+    const participants = Array.isArray(item?.participants) ? item.participants : [];
+    const otherParticipantId = participants.find((id) => id && id !== currentUserId);
+    if (otherParticipantId) {
+      participantIds.add(String(otherParticipantId));
+    }
+  });
+
+  const profileMap = new Map();
+  await Promise.all(
+    [...participantIds].map(async (id) => {
+      const profileResult = await getUserProfile(id);
+      if (profileResult.ok && profileResult.data) {
+        profileMap.set(id, profileResult.data);
+      }
+    })
+  );
+
+  return profileMap;
+}
+
+async function enrichThreads(threads = [], currentUserId) {
+  const profileMap = await resolveParticipantProfiles(threads, currentUserId);
+
+  return threads.map((item) => {
+    const participants = Array.isArray(item?.participants) ? item.participants : [];
+    const otherParticipantId = participants.find((id) => id && id !== currentUserId) || "";
+    const otherProfile = profileMap.get(String(otherParticipantId)) || null;
+    const contactName =
+      otherProfile?.fullName ||
+      otherProfile?.username ||
+      item?.title ||
+      item?.name ||
+      "Chat";
+    const contactAvatar = otherProfile?.picturePath || item?.image || "";
+    const contactInitials = initialsFromName(contactName) || "CU";
+
+    const lastSenderId = item?.lastSenderId || "";
+    const senderLabel =
+      lastSenderId && lastSenderId === currentUserId
+        ? "You"
+        : item?.lastSenderName || otherProfile?.fullName || contactName;
+    const lastMessage = String(item?.lastMessage || item?.lastMessageText || "").trim();
+    const preview =
+      lastMessage && senderLabel
+        ? senderLabel + ": " + lastMessage
+        : lastMessage || "Open chat";
+
+    return {
+      ...item,
+      contactId: otherParticipantId,
+      contactName,
+      contactAvatar,
+      contactInitials,
+      lastSenderId,
+      preview,
+      lastMessage: lastMessage || item?.lastMessage || item?.lastMessageText || "",
+      lastMessageAt: item?.lastMessageAt || item?.updatedAt || item?.createdAt || null,
+    };
+  });
+}
+
 export async function fetchThreads(userId, limitCount = 100) {
   if (!userId) {
     return fail({ code: "missing_user_id", message: "userId is required" });
   }
 
-  const remoteResult = await getCollectionDocuments("chats", {
+  const orderedRemote = await getCollectionDocuments("chats", {
     filters: [{ field: "participants", operator: "array-contains", value: userId }],
     orderByField: "lastMessageAt",
     orderDirection: "desc",
     maxResults: limitCount,
   });
 
-  if (!remoteResult.ok) {
-    return remoteResult;
+  let remoteResult = orderedRemote;
+  if (!orderedRemote.ok) {
+    const code = orderedRemote.error?.code || "";
+    const message = (orderedRemote.error?.message || "").toLowerCase();
+    const requiresIndex =
+      code === "failed-precondition" || message.includes("requires an index");
+
+    if (!requiresIndex) {
+      return orderedRemote;
+    }
+
+    const unorderedRemote = await getCollectionDocuments("chats", {
+      filters: [{ field: "participants", operator: "array-contains", value: userId }],
+      maxResults: limitCount,
+    });
+
+    if (!unorderedRemote.ok) {
+      return unorderedRemote;
+    }
+
+    remoteResult = ok(
+      [...(unorderedRemote.data || [])].sort(
+        (a, b) => toMillis(b?.lastMessageAt) - toMillis(a?.lastMessageAt)
+      )
+    );
   }
 
-  remoteResult.data.forEach((item) => {
+  const enriched = await enrichThreads(remoteResult.data || [], userId);
+
+  enriched.forEach((item) => {
     if (item.id) {
       upsertCacheRecord("threads_cache", item.id, item);
     }
   });
 
-  return remoteResult;
+  return ok(enriched);
 }
 
 export function loadCachedThreads(limitCount = 100) {
@@ -133,6 +247,11 @@ export async function sendTextMessage({ chatId, senderId, text }) {
         upsertThreadMessageRecord(payload.localMessageId, payload.chatId, {
           ...localPayload,
           status: "sent",
+        });
+        await updateCollectionDocument("chats", payload.chatId, {
+          lastMessage: payload.text,
+          lastMessageAt: new Date().toISOString(),
+          lastSenderId: payload.senderId,
         });
         return true;
       },

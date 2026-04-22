@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   StatusBar,
   useWindowDimensions,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +23,7 @@ import {
 } from "../services/repositories/discoveryRepository";
 import { fetchEvents, loadCachedEvents } from "../services/repositories/eventsRepository";
 import { fetchNotificationsForUser } from "../services/repositories/notificationsRepository";
+import { sendWave } from "../services/repositories/wavesRepository";
 import { useResponsiveMetrics } from "../hooks/useResponsiveMetrics";
 
 // ── Greeting helper ────────────────────────────────────────────────────────────
@@ -65,7 +67,7 @@ function EventCard({ event, cardWidth, titleStyle, subtitleStyle }) {
 }
 
 // ── Suggested Friend row ───────────────────────────────────────────────────────
-function FriendRow({ user, nameStyle, contextStyle }) {
+function FriendRow({ user, nameStyle, contextStyle, onWave, isWaved, isWaving }) {
   return (
     <View style={styles.friendRow}>
       {/* Avatar — real photo or initials fallback */}
@@ -89,8 +91,15 @@ function FriendRow({ user, nameStyle, contextStyle }) {
       </View>
 
       {/* Wave button */}
-      <TouchableOpacity style={styles.waveBtn} activeOpacity={0.75}>
-        <Text style={styles.waveBtnText}>Wave</Text>
+      <TouchableOpacity
+        style={[styles.waveBtn, (isWaved || isWaving) && styles.waveBtnActive]}
+        activeOpacity={0.75}
+        onPress={() => onWave && onWave(user)}
+        disabled={isWaved || isWaving}
+      >
+        <Text style={[styles.waveBtnText, (isWaved || isWaving) && styles.waveBtnTextActive]}>
+          {isWaved ? "Waved 👋" : isWaving ? "Waving..." : "Wave"}
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -107,6 +116,8 @@ export default function HomeScreen() {
   const [suggestedFriends, setSuggestedFriends] = useState([]);
   const [events, setEvents] = useState([]);
   const [notificationsCount, setNotificationsCount] = useState(0);
+  const [wavedUserIds, setWavedUserIds] = useState([]);
+  const [wavingUserIds, setWavingUserIds] = useState([]);
 
   useEffect(() => {
     let active = true;
@@ -180,6 +191,31 @@ export default function HomeScreen() {
       active = false;
     };
   }, [user?._id, user?.id]);
+
+  async function handleWave(targetUser) {
+    const fromUserId = user?._id || user?.id;
+    const toUserId = targetUser?._id || targetUser?.id;
+    if (!fromUserId || !toUserId) {
+      return;
+    }
+    setWavingUserIds((prev) => (prev.includes(toUserId) ? prev : [...prev, toUserId]));
+
+    const result = await sendWave({
+      fromUserId,
+      fromUserName: user?.fullName,
+      fromUserAvatar: user?.picturePath,
+      toUserId,
+      toUserName: targetUser?.fullName,
+    });
+    if (result.ok) {
+      setWavedUserIds((prev) => (prev.includes(toUserId) ? prev : [...prev, toUserId]));
+      setWavingUserIds((prev) => prev.filter((id) => id !== toUserId));
+      return;
+    }
+    setWavingUserIds((prev) => prev.filter((id) => id !== toUserId));
+
+    Alert.alert("Wave failed", result.error?.message || "Could not send wave right now.");
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -261,6 +297,9 @@ export default function HomeScreen() {
               user={u}
               nameStyle={{ fontSize: scaleFont(15, 13, 17) }}
               contextStyle={{ fontSize: scaleFont(12, 10, 14) }}
+              onWave={handleWave}
+              isWaved={wavedUserIds.includes(u._id || u.id)}
+              isWaving={wavingUserIds.includes(u._id || u.id)}
             />
           ))}
         </View>
@@ -490,10 +529,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 8,
   },
+  waveBtnActive: {
+    backgroundColor: KULA.teal,
+  },
   waveBtnText: {
     color: KULA.teal,
     fontWeight: "600",
     fontSize: 14,
+  },
+  waveBtnTextActive: {
+    color: KULA.white,
   },
 
   // FAB

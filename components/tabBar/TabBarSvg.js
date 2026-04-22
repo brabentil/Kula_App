@@ -31,6 +31,7 @@ const TabBarSvg = ({ width, height }) => {
   return (
     <Svg
       style={{ position: "absolute", bottom: 0 }}
+      pointerEvents="none"
       width={WIDTH}
       height={HEIGHT}
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}

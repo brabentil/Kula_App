@@ -4,18 +4,20 @@ import { KULA } from "../../constants/Styles";
 
 function formatTime(value) {
   if (!value) {
-    return "12:00 AM";
+    return "";
   }
 
-  const parsed = new Date(value);
+  const normalized = typeof value?.toDate === "function" ? value.toDate() : value;
+  const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) {
-    return "12:00 AM";
+    return "";
   }
 
   return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-const ChatCard = ({ sender, text, time }) => {
+const ChatCard = ({ sender, text, time, incomingInitials = "CU" }) => {
+  const displayTime = formatTime(time);
   return (
     <View
       style={[
@@ -26,7 +28,7 @@ const ChatCard = ({ sender, text, time }) => {
       {/* Coloured initials avatar — received side only */}
       {sender && (
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>JD</Text>
+          <Text style={styles.avatarText}>{incomingInitials}</Text>
         </View>
       )}
 
@@ -34,9 +36,11 @@ const ChatCard = ({ sender, text, time }) => {
         <Text style={sender ? styles.textReceived : styles.textSent}>
           {text || ""}
         </Text>
-        <Text style={[styles.time, sender ? styles.timeReceived : styles.timeSent]}>
-          {formatTime(time)}
-        </Text>
+        {displayTime ? (
+          <Text style={[styles.time, sender ? styles.timeReceived : styles.timeSent]}>
+            {displayTime}
+          </Text>
+        ) : null}
       </View>
     </View>
   );

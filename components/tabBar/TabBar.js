@@ -50,6 +50,7 @@ const TabBar = ({ state, descriptors, navigation }) => {
   const metrics = getTabBarMetrics(width);
   const centerButtonSize = metrics.buttonDiameter;
   const centerOffset = metrics.notchDepth - metrics.buttonRadius;
+  const bottomInsetPadding = Math.max(12, (insets.bottom || 0) + 2);
 
   const activeTabScreen = state.routes[state.index].name;
   return (
@@ -73,7 +74,16 @@ const TabBar = ({ state, descriptors, navigation }) => {
           />
         </Animated.View>
       )}
-      <View style={{ zIndex: 10 }}>
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 10,
+          elevation: 1,
+        }}
+      >
         <TabBarSvg
           width={width}
           height={tabBarHeight}
@@ -86,11 +96,12 @@ const TabBar = ({ state, descriptors, navigation }) => {
           alignItems: "center",
           paddingHorizontal: Math.max(12, width * 0.04),
           paddingTop: 6,
-          paddingBottom: Math.max(8, insets.bottom),
+          paddingBottom: bottomInsetPadding,
           backgroundColor: "transparent",
           position: "absolute",
           bottom: 0,
           zIndex: 20,
+          elevation: 3,
         }}
         onLayout={(e) => {
           setTabBarHeight(e.nativeEvent.layout.height);
@@ -126,14 +137,16 @@ const TabBar = ({ state, descriptors, navigation }) => {
                 { translateX: isFocused ? withTiming(-10) : withTiming(0) },
                 { translateY: isFocused ? withTiming(-6) : withTiming(0) },
               ],
-              tintColor: isFocused
-                ? withTiming("#1D9E75")          // teal active
-                : withTiming("rgba(59,42,26,0.3)"), // brown inactive
             };
           });
-          const animatedColor = useAnimatedStyle(() => {
+          const animatedFocusedOpacity = useAnimatedStyle(() => {
             return {
               opacity: isFocused ? withTiming(1) : withTiming(0),
+            };
+          });
+          const animatedUnfocusedOpacity = useAnimatedStyle(() => {
+            return {
+              opacity: isFocused ? withTiming(0) : withTiming(1),
             };
           });
           const screenDef = screens[index];
@@ -164,7 +177,7 @@ const TabBar = ({ state, descriptors, navigation }) => {
                           tintColor: "#1D9E75",
                           overflow: "visible",
                         },
-                        animatedColor,
+                        animatedFocusedOpacity,
                       ]}
                     />
                     <Animated.Image
@@ -174,8 +187,8 @@ const TabBar = ({ state, descriptors, navigation }) => {
                           width: metrics.iconSize,
                           height: metrics.iconSize,
                           tintColor: "rgba(59,42,26,0.35)",
-                          opacity: 1,
                         },
+                        animatedUnfocusedOpacity,
                         animatedStyles,
                       ]}
                     />
@@ -188,6 +201,8 @@ const TabBar = ({ state, descriptors, navigation }) => {
                     flex: 1,
                     justifyContent: "center",
                     alignItems: "center",
+                    zIndex: 30,
+                    elevation: 4,
                   }}
                 >
                   <View

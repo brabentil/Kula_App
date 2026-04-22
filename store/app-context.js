@@ -3,13 +3,13 @@ import { createContext, useEffect, useRef, useState } from "react";
 export const AppContext = createContext({
   tabBarHeight: 0,
   setTabBarHeight: () => {},
-  fetchingUsers: true,
+  fetchingUsers: false,
   setFetchingUsers: () => {},
 });
 
 function AppContextProvider({ children }) {
   const [tabBarHeight, setTabBarHeight] = useState();
-  const [fetchingUsers, setFetchingUsers] = useState(true);
+  const [fetchingUsers, setFetchingUsers] = useState(false);
 
   const value = {
     setTabBarHeight: setTabBarHeight,
