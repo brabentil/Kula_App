@@ -35,9 +35,13 @@ function getGreeting() {
 }
 
 // ── Nearby Event card ──────────────────────────────────────────────────────────
-function EventCard({ event, cardWidth, titleStyle, subtitleStyle }) {
+function EventCard({ event, cardWidth, titleStyle, subtitleStyle, onPress }) {
   return (
-    <View style={[styles.eventCard, { width: cardWidth }]}>
+    <TouchableOpacity
+      style={[styles.eventCard, { width: cardWidth }]}
+      activeOpacity={0.85}
+      onPress={() => onPress && onPress(event)}
+    >
       <View style={styles.eventImageContainer}>
         <Image
           source={{
@@ -62,7 +66,7 @@ function EventCard({ event, cardWidth, titleStyle, subtitleStyle }) {
           </Text>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -217,6 +221,10 @@ export default function HomeScreen() {
     Alert.alert("Wave failed", result.error?.message || "Could not send wave right now.");
   }
 
+  function handleOpenEvents() {
+    navigation.navigate("EventsScreen");
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={KULA.cream} />
@@ -264,6 +272,9 @@ export default function HomeScreen() {
         {/* ── Nearby Events ── */}
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { fontSize: scaleFont(18, 16, 21) }]}>Nearby Events</Text>
+          <TouchableOpacity onPress={handleOpenEvents}>
+            <Text style={styles.seeAll}>See all</Text>
+          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -278,6 +289,7 @@ export default function HomeScreen() {
               cardWidth={eventCardWidth}
               titleStyle={{ fontSize: scaleFont(14, 12, 16) }}
               subtitleStyle={{ fontSize: scaleFont(12, 10, 14) }}
+              onPress={handleOpenEvents}
             />
           ))}
         </ScrollView>
@@ -285,7 +297,7 @@ export default function HomeScreen() {
         {/* ── Suggested Friends ── */}
         <View style={[styles.sectionHeader, { marginTop: 24 }]}>
           <Text style={[styles.sectionTitle, { fontSize: scaleFont(18, 16, 21) }]}>Suggested Friends</Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.navigate("FindFriendsScreen")}>
             <Text style={styles.seeAll}>See all</Text>
           </TouchableOpacity>
         </View>

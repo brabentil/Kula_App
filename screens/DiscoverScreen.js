@@ -9,6 +9,7 @@ import {
   FlatList,
   StatusBar,
   TextInput,
+  ActivityIndicator,
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -50,6 +51,15 @@ const CATEGORY_TEXT = {
   Community: "#7A6FDC",
   People: KULA.gold,
 };
+
+function normalizeCoordinates(location) {
+  const latitude = Number(location?.latitude ?? location?.lat);
+  const longitude = Number(location?.longitude ?? location?.lng ?? location?.lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  return { latitude, longitude };
+}
 
 // ── Result row ─────────────────────────────────────────────────────────────────
 function DiscoverRow({ item, isJoined, onJoin }) {
@@ -99,6 +109,14 @@ export default function DiscoverScreen() {
   const [joinedEvents, setJoinedEvents] = useState([]);
   const [discoverItems, setDiscoverItems] = useState([]);
   const [selectedMapItemId, setSelectedMapItemId] = useState(null);
+  const [isLoadingDiscover, setIsLoadingDiscover] = useState(true);
+  const [discoverError, setDiscoverError] = useState("");
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 5.6037,
+    longitude: -0.187,
+    latitudeDelta: 6,
+    longitudeDelta: 6,
+  });
   const { scaleFont } = useResponsiveMetrics();
 
   const userId = authCtx.userData?._id || authCtx.userData?.id;
@@ -142,6 +160,8 @@ export default function DiscoverScreen() {
     let active = true;
 
     async function loadDiscoverItems() {
+      setIsLoadingDiscover(true);
+      setDiscoverError("");
       appCtx.setFetchingUsers(true);
       try {
         const result = await fetchNearbyUsers({
@@ -154,10 +174,16 @@ export default function DiscoverScreen() {
           return;
         }
 
-        const sourceItems =
-          result.ok && Array.isArray(result.data) && result.data.length > 0
-            ? result.data
-            : loadCachedNearbyUsers(100, { currentUser: authCtx.userData || {} }).data || [];
+        let sourceItems = [];
+        if (result.ok && Array.isArray(result.data) && result.data.length > 0) {
+          sourceItems = result.data;
+        } else {
+          const cached = loadCachedNearbyUsers(100, { currentUser: authCtx.userData || {} });
+          sourceItems = cached.ok ? cached.data || [] : [];
+          if (!result.ok) {
+            setDiscoverError(result.error?.message || "Could not load nearby users.");
+          }
+        }
 
         const mapped = sourceItems.map((item, index) => {
           const category = index % 2 === 0 ? "People" : "Community";
@@ -175,9 +201,18 @@ export default function DiscoverScreen() {
         });
 
         setDiscoverItems(mapped);
+        if (mapped.length === 0 && !discoverError) {
+          setDiscoverError("No discover items available yet.");
+        }
+      } catch (error) {
+        if (active) {
+          setDiscoverItems([]);
+          setDiscoverError(error?.message || "Could not load nearby users.");
+        }
       } finally {
         if (active) {
           appCtx.setFetchingUsers(false);
+          setIsLoadingDiscover(false);
         }
       }
     }
@@ -227,24 +262,25 @@ export default function DiscoverScreen() {
   });
 
   const mapItems = filtered.filter((item) => {
-    const latitude = Number(item?.location?.latitude);
-    const longitude = Number(item?.location?.longitude);
-    return Number.isFinite(latitude) && Number.isFinite(longitude);
+    return Boolean(normalizeCoordinates(item?.location));
   });
 
-  const initialRegion = mapItems.length
-    ? {
-        latitude: Number(mapItems[0].location.latitude),
-        longitude: Number(mapItems[0].location.longitude),
-        latitudeDelta: 0.25,
-        longitudeDelta: 0.25,
-      }
-    : {
-        latitude: 5.6037,
-        longitude: -0.187,
-        latitudeDelta: 6,
-        longitudeDelta: 6,
-      };
+  useEffect(() => {
+    if (!mapItems.length) {
+      return;
+    }
+    const coords = normalizeCoordinates(mapItems[0].location);
+    if (!coords) {
+      return;
+    }
+    setMapRegion((prev) => ({
+      ...prev,
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      latitudeDelta: 0.25,
+      longitudeDelta: 0.25,
+    }));
+  }, [mapItems.length, selectedCat, search]);
 
   const selectedMapItem =
     mapItems.find((item) => item._id === selectedMapItemId) || mapItems[0] || null;
@@ -337,20 +373,39 @@ export default function DiscoverScreen() {
 
       {viewMode === "map" ? (
         <View style={styles.mapWrap}>
-          <MapView style={styles.map} initialRegion={initialRegion}>
+          <MapView
+            style={styles.map}
+            region={mapRegion}
+            onRegionChangeComplete={setMapRegion}
+            scrollEnabled
+            zoomEnabled
+            pitchEnabled
+            rotateEnabled
+          >
             {mapItems.map((item) => (
-              <Marker
-                key={item._id}
-                coordinate={{
-                  latitude: Number(item.location.latitude),
-                  longitude: Number(item.location.longitude),
-                }}
-                title={item.title}
-                description={item.category}
-                onPress={() => setSelectedMapItemId(item._id)}
-              />
+              (() => {
+                const coords = normalizeCoordinates(item.location);
+                if (!coords) {
+                  return null;
+                }
+                return (
+                  <Marker
+                    key={item._id}
+                    coordinate={coords}
+                    title={item.title}
+                    description={item.category}
+                    onPress={() => setSelectedMapItemId(item._id)}
+                  />
+                );
+              })()
             ))}
           </MapView>
+          {isLoadingDiscover ? (
+            <View style={styles.mapLoadingOverlay}>
+              <ActivityIndicator color={KULA.teal} />
+              <Text style={styles.mapLoadingText}>Loading map results...</Text>
+            </View>
+          ) : null}
           {selectedMapItem ? (
             <View style={styles.mapCard}>
               <Text style={styles.mapCardTitle}>{selectedMapItem.title}</Text>
@@ -361,8 +416,9 @@ export default function DiscoverScreen() {
           ) : (
             <View style={styles.mapCard}>
               <Text style={styles.mapCardMeta}>
-                No location-enabled results found. Ask users to enable location in onboarding
-                to appear on the map.
+                {discoverError
+                  ? discoverError
+                  : "No location-enabled results found. Ask users to enable location in onboarding to appear on the map."}
               </Text>
             </View>
           )}
@@ -519,6 +575,22 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     borderRadius: 16,
     overflow: "hidden",
+  },
+  mapLoadingOverlay: {
+    position: "absolute",
+    top: 14,
+    left: 14,
+    right: 14,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  mapLoadingText: {
+    color: KULA.brown,
+    fontSize: 13,
+    marginTop: 6,
+    fontWeight: "600",
   },
   map: {
     flex: 1,

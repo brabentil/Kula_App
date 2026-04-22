@@ -41,7 +41,7 @@ const Post = ({ postData }) => {
         }}
         style={{ margin: 5 }}
       >
-        <RemoteImage imageUri={postData.picturePath} />
+        <RemoteImage imageUri={postData.picturePath} mediaType={postData.mediaType || postData.fileType} />
       </Pressable>
     </View>
   );

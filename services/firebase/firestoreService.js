@@ -223,6 +223,36 @@ export async function createCollectionDocument(collectionName, payload = {}) {
   }
 }
 
+export async function upsertCollectionDocumentById(
+  collectionName,
+  documentId,
+  payload = {}
+) {
+  if (!collectionName || !documentId) {
+    return fail({ code: "missing_keys", message: "collectionName and documentId are required" });
+  }
+
+  if (!hasFirebaseConfig()) {
+    return failMissingConfig();
+  }
+
+  try {
+    const db = getFirestoreClient();
+    await setDoc(
+      doc(db, collectionName, documentId),
+      {
+        ...payload,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return ok(documentId);
+  } catch (error) {
+    return fail(error);
+  }
+}
+
 export async function updateCollectionDocument(collectionName, documentId, payload = {}) {
   if (!collectionName || !documentId) {
     return fail({ code: "missing_keys", message: "collectionName and documentId are required" });

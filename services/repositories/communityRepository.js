@@ -1,6 +1,6 @@
 import {
-  createCollectionDocument,
   getCollectionDocuments,
+  upsertCollectionDocumentById,
 } from "../firebase/firestoreService";
 import {
   getUiState,
@@ -44,6 +44,10 @@ function persistMembershipIds(userId, nextIds = []) {
     communityIds: nextIds,
     updatedAt: Date.now(),
   });
+}
+
+function communityMembershipDocId(userId, communityId) {
+  return "community:" + String(userId) + ":" + String(communityId);
 }
 
 export async function fetchCommunities(limitCount = 50) {
@@ -92,11 +96,19 @@ export async function joinCommunity({ userId, communityId }) {
     {
       "community_memberships:join": async (item) => {
         const payload = item?.payload || {};
-        const result = await createCollectionDocument("community_memberships", {
+        const membershipDocId = communityMembershipDocId(
+          payload.userId,
+          payload.communityId
+        );
+        const result = await upsertCollectionDocumentById(
+          "community_memberships",
+          membershipDocId,
+          {
           userId: payload.userId,
           communityId: payload.communityId,
           joinedAt: payload.joinedAt || Date.now(),
-        });
+          }
+        );
         if (!result.ok) {
           throw new Error(result.error?.message || "Failed to persist community join");
         }
@@ -124,9 +136,9 @@ export async function fetchUserMemberships(userId, limitCount = 100) {
     return ok(fallback);
   }
 
-  const remoteIds = remoteResult.data
+  const remoteIds = [...new Set(remoteResult.data
     .map((item) => item.communityId)
-    .filter((id) => Boolean(id));
+    .filter((id) => Boolean(id)))];
   persistMembershipIds(userId, remoteIds);
   return remoteResult;
 }

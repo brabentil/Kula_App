@@ -6,11 +6,12 @@ import { DEFAULT_DP, GlobalStyles } from "../constants/Styles";
 import { Image } from "react-native";
 import { AuthContext } from "../store/auth-context";
 import CameraScreen from "./CameraScreen";
-import { getFilename } from "../utils/helperFunctions";
 import ProgressOverlay from "../components/ProgressOverlay";
 import ErrorOverlay from "../components/ErrorOverlay";
 import PressEffect from "../components/UI/PressEffect";
 import { getUiState, upsertUiState } from "../services/localdb/cacheRepository";
+import { uploadMediaFromUri } from "../services/firebase/storageService";
+import { upsertUserProfile } from "../services/firebase/firestoreService";
 
 const EditProfileScreen = ({ navigation, route }) => {
   const authCtx = useContext(AuthContext);
@@ -31,47 +32,77 @@ const EditProfileScreen = ({ navigation, route }) => {
     progress: 0,
     success: true,
   });
+  const [uploadErrorMessage, setUploadErrorMessage] = useState("Uploading Failed");
   const draftKey = "draft:edit_profile";
   const draftRef = useRef({ profilePic: "", userData: {} });
 
   async function updateBtnHandler() {
-    const filenameData = getFilename(profilePic);
-
-    const formData = new FormData();
-    formData.append("_id", authCtx.userData._id);
-    formData.append("username", userData.username);
-    formData.append("fullName", userData.fullName);
-    formData.append("email", userData.email);
-    formData.append("occupation", userData.occupation);
-    formData.append("bio", userData.bio);
-    if (!!profilePic) {
-      formData.append("picture", {
-        uri: profilePic,
-        type: "image/" + filenameData.fileType,
-        name: filenameData.name,
-      });
-      formData.append("picturePath", filenameData.name);
+    const userId = authCtx.userData?._id || authCtx.userData?.id;
+    if (!userId) {
+      return;
     }
     try {
+      setUploadErrorMessage("Uploading Failed");
       setUploading((prevData) => {
         return { ...prevData, status: true };
       });
-      setTimeout(() => {
-        upsertUiState(draftKey, {
-          profilePic: "",
-          userData: {
-            fullName: userData.fullName,
-            username: userData.username,
-            bio: userData.bio,
-            email: userData.email,
-            occupation: userData.occupation,
-          },
-          updatedAt: Date.now(),
+
+      let remotePicturePath = authCtx.userData?.picturePath || "";
+      if (!!profilePic && String(profilePic).startsWith("http") === false) {
+        const uploadResult = await uploadMediaFromUri({
+          uri: profilePic,
+          userId,
+          mediaType: "image",
+          folder: "profiles",
         });
-        setUploading({ status: false, progress: 0, success: true });
-        navigation.goBack();
-      }, 3000);
+        if (!uploadResult.ok) {
+          console.log("Profile upload error", {
+            code: uploadResult.error?.code,
+            message: uploadResult.error?.message,
+            serverResponse: uploadResult.error?.serverResponse || "",
+          });
+          throw new Error(uploadResult.error?.message || "Unable to upload profile image");
+        }
+        remotePicturePath = uploadResult.data.downloadURL;
+      } else if (!!profilePic) {
+        remotePicturePath = profilePic;
+      }
+
+      const profilePayload = {
+        username: userData.username,
+        fullName: userData.fullName,
+        email: userData.email,
+        occupation: userData.occupation,
+        bio: userData.bio,
+        picturePath: remotePicturePath,
+      };
+
+      const upsertResult = await upsertUserProfile(userId, profilePayload);
+      if (!upsertResult.ok) {
+        throw new Error(upsertResult.error?.message || "Unable to update profile");
+      }
+
+      authCtx.updateUserData({
+        ...profilePayload,
+        _id: userId,
+        id: userId,
+      });
+
+      upsertUiState(draftKey, {
+        profilePic: "",
+        userData: {
+          fullName: userData.fullName,
+          username: userData.username,
+          bio: userData.bio,
+          email: userData.email,
+          occupation: userData.occupation,
+        },
+        updatedAt: Date.now(),
+      });
+      setUploading({ status: false, progress: 0, success: true });
+      navigation.goBack();
     } catch (error) {
+      setUploadErrorMessage(error?.message || "Uploading Failed");
       setUploading((prevData) => {
         return { ...prevData, success: false };
       });
@@ -117,7 +148,7 @@ const EditProfileScreen = ({ navigation, route }) => {
       <CameraScreen
         showCamera={showCamera}
         setShowCamera={setShowCamera}
-        getPost={setProfilePic}
+        getPost={(selectedMedia) => setProfilePic(selectedMedia?.uri || selectedMedia)}
         mode={"profilePic"}
       />
       <ScrollView
@@ -234,9 +265,10 @@ const EditProfileScreen = ({ navigation, route }) => {
             />
           ) : (
             <ErrorOverlay
-              message={"Uploading Failed"}
+              message={uploadErrorMessage}
               onClose={() => {
                 setUploading({ status: false, progress: 0, success: true });
+                setUploadErrorMessage("Uploading Failed");
               }}
             />
           )}

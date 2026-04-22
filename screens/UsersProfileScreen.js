@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -16,21 +16,21 @@ import { KULA } from "../constants/Styles";
 import FAB from "../components/UI/FAB";
 import { AuthContext } from "../store/auth-context";
 import { sendWave } from "../services/repositories/wavesRepository";
+import { getUserProfile } from "../services/firebase/firestoreService";
 
-// ── Mock profile data for a visited user ──────────────────────────────────────
-const PROFILE_USER = {
-  _id: "kula_user_008",
-  fullName: "Amara Okafor",
-  originCountry: "Nigeria",
-  originFlag: "🇳🇬",
-  currentCity: "Accra, Ghana",
-  arrivalYear: 2024,
-  picturePath: "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=400&q=80",
-  bio: "Tech enthusiast and food lover exploring Accra. Always up for trying new restaurants and meeting people from different cultures. Let's connect!",
-  interests: ["Food", "Tech", "Music", "Culture", "Sports"],
-  eventsAttended: 12,
-  communitiesJoined: 3,
-  isVerified: true,
+const EMPTY_PROFILE_USER = {
+  _id: "",
+  fullName: "Unknown user",
+  originCountry: "",
+  originFlag: "",
+  currentCity: "Unknown location",
+  arrivalYear: null,
+  picturePath: "",
+  bio: "No profile details available yet.",
+  interests: [],
+  eventsAttended: 0,
+  communitiesJoined: 0,
+  isVerified: false,
 };
 
 // ── Interest tag ───────────────────────────────────────────────────────────────
@@ -49,8 +49,48 @@ export default function UsersProfileScreen() {
   const authCtx = useContext(AuthContext);
   const [waved, setWaved] = useState(false);
   const [isWaving, setIsWaving] = useState(false);
-  const routeUser = route?.params?.user;
-  const user = routeUser ? { ...PROFILE_USER, ...routeUser } : PROFILE_USER;
+  const routeUser = route?.params?.user || null;
+  const routeUserId = route?.params?.userId || routeUser?._id || routeUser?.id || null;
+  const [remoteUser, setRemoteUser] = useState(null);
+  const [isLoadingUser, setIsLoadingUser] = useState(false);
+  const [profileLoadError, setProfileLoadError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    async function loadUserById() {
+      if (!routeUserId) {
+        setRemoteUser(null);
+        setProfileLoadError("Profile details are unavailable.");
+        return;
+      }
+      setIsLoadingUser(true);
+      setProfileLoadError("");
+      const result = await getUserProfile(routeUserId);
+      if (!active) {
+        return;
+      }
+      if (result.ok && result.data) {
+        setRemoteUser(result.data);
+      } else {
+        setRemoteUser(null);
+        setProfileLoadError(result.error?.message || "Could not load profile details.");
+      }
+      setIsLoadingUser(false);
+    }
+
+    loadUserById();
+    return () => {
+      active = false;
+    };
+  }, [routeUserId]);
+
+  const user = useMemo(() => {
+    return {
+      ...EMPTY_PROFILE_USER,
+      ...(remoteUser || {}),
+      ...(routeUser || {}),
+    };
+  }, [remoteUser, routeUser]);
 
   async function handleWave() {
     const fromUserId = authCtx.userData?._id || authCtx.userData?.id;
@@ -116,7 +156,9 @@ export default function UsersProfileScreen() {
 
           <View style={styles.metaRow}>
             <Ionicons name="calendar-outline" size={14} color={KULA.muted} />
-            <Text style={styles.metaText}>Arrived {user.arrivalYear}</Text>
+            <Text style={styles.metaText}>
+              {user.arrivalYear ? `Arrived ${user.arrivalYear}` : "Arrival date unavailable"}
+            </Text>
           </View>
 
           {/* Action buttons */}
@@ -140,6 +182,13 @@ export default function UsersProfileScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {isLoadingUser ? (
+          <Text style={styles.noticeText}>Loading profile details...</Text>
+        ) : null}
+        {!isLoadingUser && profileLoadError ? (
+          <Text style={styles.noticeText}>{profileLoadError}</Text>
+        ) : null}
 
         {/* ── Stats row ── */}
         <View style={styles.divider} />
@@ -261,6 +310,12 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   metaText: { fontSize: 14, color: KULA.muted },
+  noticeText: {
+    fontSize: 13,
+    color: KULA.muted,
+    textAlign: "center",
+    marginTop: 8,
+  },
 
   // Buttons
   actionButtons: {

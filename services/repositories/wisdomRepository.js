@@ -1,4 +1,7 @@
-import { getCollectionDocuments } from "../firebase/firestoreService";
+import {
+  createCollectionDocument,
+  getCollectionDocuments,
+} from "../firebase/firestoreService";
 
 function ok(data, source = "remote") {
   return { ok: true, data, error: null, source };
@@ -19,18 +22,34 @@ function toTimeAgo(value) {
   if (!value) {
     return "now";
   }
-  if (typeof value === "string") {
-    return value;
-  }
+  let date = null;
+
   if (typeof value?.toDate === "function") {
-    const date = value.toDate();
-    const diffMs = Date.now() - date.getTime();
-    const hours = Math.floor(diffMs / 3600000);
-    if (hours < 1) return "now";
-    if (hours < 24) return hours + "h ago";
-    return Math.floor(hours / 24) + "d ago";
+    date = value.toDate();
+  } else if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      date = parsed;
+    }
+  } else if (value instanceof Date) {
+    date = value;
   }
-  return "now";
+
+  if (!date) {
+    return "now";
+  }
+
+  const diffMs = Math.max(0, Date.now() - date.getTime());
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return minutes + "m ago";
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + "h ago";
+  const days = Math.floor(hours / 24);
+  if (days < 30) return days + "d ago";
+  const months = Math.floor(days / 30);
+  if (months < 12) return months + "mo ago";
+  return Math.floor(months / 12) + "y ago";
 }
 
 function normalizeWisdomPost(item = {}, index = 0) {
@@ -45,6 +64,7 @@ function normalizeWisdomPost(item = {}, index = 0) {
     authorPic:
       item.authorPic ||
       item.avatar ||
+      item.authorPicturePath ||
       item.picturePath ||
       "https://i.pravatar.cc/100?img=12",
     timeAgo: toTimeAgo(item.timeAgo || item.createdAt),
@@ -75,6 +95,54 @@ export async function fetchWisdomPosts({ maxResults = 60 } = {}) {
     }
 
     return ok((result.data || []).map(normalizeWisdomPost), "remote");
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function createWisdomPost({
+  question,
+  category = "General",
+  authorId = "",
+  authorName = "",
+  authorPic = "",
+} = {}) {
+  try {
+    const trimmedQuestion = String(question || "").trim();
+    if (!trimmedQuestion) {
+      return fail({
+        code: "missing_question",
+        message: "Question is required",
+      });
+    }
+
+    const payload = {
+      question: trimmedQuestion,
+      category: String(category || "General").trim() || "General",
+      authorId: String(authorId || "").trim(),
+      authorName: String(authorName || "").trim() || "Community Member",
+      authorPic: String(authorPic || "").trim(),
+      likes: 0,
+      answerCount: 0,
+      topAnswer: null,
+    };
+
+    const createResult = await createCollectionDocument("wisdom_posts", payload);
+    if (!createResult.ok) {
+      return fail(createResult.error);
+    }
+
+    return ok(
+      normalizeWisdomPost(
+        {
+          id: createResult.data,
+          ...payload,
+          createdAt: new Date().toISOString(),
+        },
+        0
+      ),
+      "remote"
+    );
   } catch (error) {
     return fail(error);
   }

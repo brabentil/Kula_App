@@ -1,6 +1,6 @@
 import {
-  createCollectionDocument,
   getCollectionDocuments,
+  upsertCollectionDocumentById,
 } from "../firebase/firestoreService";
 import {
   getUiState,
@@ -9,6 +9,11 @@ import {
   upsertUiState,
 } from "../localdb/cacheRepository";
 import { queueOrProcessWrite } from "../sync/outboxSyncService";
+
+const FALLBACK_EVENT_IMAGE =
+  "https://images.unsplash.com/photo-1511578314322-379afb476865?w=1200&q=80";
+const FALLBACK_AVATAR =
+  "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&q=80";
 
 function fail(error) {
   return {
@@ -46,6 +51,33 @@ function persistEventIds(userId, nextIds = []) {
   });
 }
 
+function eventAttendeeDocId(userId, eventId) {
+  return "event:" + String(userId) + ":" + String(eventId);
+}
+
+function normalizeEvent(item = {}) {
+  const image =
+    item.image || item.coverImage || item.picturePath || item.bannerImage || FALLBACK_EVENT_IMAGE;
+  const organiserPic = item.organiserPic || item.organizerPic || item.hostPicturePath || FALLBACK_AVATAR;
+  const title = item.title || item.name || "Community Event";
+  const location = item.location || item.city || "Location TBA";
+  const time = item.time || item.startTimeLabel || "Time TBA";
+  const category = item.category || item.type || "Community";
+  const attendeeCount = Number(item.attendeeCount || item.attendeesCount || 0);
+
+  return {
+    ...item,
+    image,
+    coverImage: image,
+    organiserPic,
+    title,
+    location,
+    time,
+    category,
+    attendeeCount: Number.isFinite(attendeeCount) ? attendeeCount : 0,
+  };
+}
+
 export async function fetchEvents(limitCount = 50) {
   const remoteResult = await getCollectionDocuments("events", {
     orderByField: "startTime",
@@ -57,17 +89,29 @@ export async function fetchEvents(limitCount = 50) {
     return remoteResult;
   }
 
-  remoteResult.data.forEach((item) => {
+  const normalized = remoteResult.data.map((item) => normalizeEvent(item));
+
+  normalized.forEach((item) => {
     if (item.id) {
       upsertCacheRecord("events_cache", item.id, item);
     }
   });
 
-  return remoteResult;
+  return ok(normalized);
 }
 
 export function loadCachedEvents(limitCount = 50) {
-  return listCacheRecords("events_cache", limitCount);
+  const cacheResult = listCacheRecords("events_cache", limitCount);
+  if (!cacheResult.ok) {
+    return cacheResult;
+  }
+
+  return ok(
+    cacheResult.data.map((item) => ({
+      ...item,
+      payload: normalizeEvent(item.payload || {}),
+    }))
+  );
 }
 
 export async function joinEvent({ userId, eventId }) {
@@ -92,7 +136,8 @@ export async function joinEvent({ userId, eventId }) {
     {
       "event_attendees:join": async (item) => {
         const payload = item?.payload || {};
-        const result = await createCollectionDocument("event_attendees", {
+        const attendeeDocId = eventAttendeeDocId(payload.userId, payload.eventId);
+        const result = await upsertCollectionDocumentById("event_attendees", attendeeDocId, {
           userId: payload.userId,
           eventId: payload.eventId,
           joinedAt: payload.joinedAt || Date.now(),
@@ -124,9 +169,9 @@ export async function fetchUserEventMemberships(userId, limitCount = 100) {
     return ok(fallback);
   }
 
-  const remoteIds = remoteResult.data
+  const remoteIds = [...new Set(remoteResult.data
     .map((item) => item.eventId)
-    .filter((id) => Boolean(id));
+    .filter((id) => Boolean(id)))];
   persistEventIds(userId, remoteIds);
   return remoteResult;
 }

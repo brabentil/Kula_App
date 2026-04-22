@@ -3,10 +3,9 @@ import {
   useCameraPermissions,
   useMicrophonePermissions,
 } from "expo-camera";
-import { Video } from "expo-av";
 import * as ImagePicker from "expo-image-picker";
 import { useState, useEffect, useRef, useContext } from "react";
-import { Pressable, StyleSheet, Text, View, Modal } from "react-native";
+import { Pressable, StyleSheet, Text, View, Modal, Alert } from "react-native";
 import { Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -19,35 +18,62 @@ function CameraScreen({ showCamera, setShowCamera, getPost, mode, setExit }) {
   const appCtx = useContext(AppContext);
 
   const [facing, setFacing] = useState("back");
-  const [camera, setCamera] = useState(null);
+  const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [audioPermission, requestAudioPermission] = useMicrophonePermissions();
-  const [image, setImage] = useState(null);
+  const [capturedMedia, setCapturedMedia] = useState(null);
 
   const [recording, setRecording] = useState(false);
-  const [videoUri, setVideoUri] = useState(null);
+  const [recordingState, setRecordingState] = useState("idle");
+  const recordingStateRef = useRef("idle");
+  const [isClosingCamera, setIsClosingCamera] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerIntervalRef = useRef(null);
 
+  function updateRecordingState(nextState) {
+    recordingStateRef.current = nextState;
+    setRecordingState(nextState);
+  }
+
+  function clearRecordingTimer() {
+    clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = null;
+  }
+
+  function closeCameraSafely() {
+    if (recordingStateRef.current !== "idle") {
+      return;
+    }
+    setIsClosingCamera(true);
+    setTimeout(() => {
+      if (setExit) {
+        setExit(true);
+      }
+      setShowCamera(false);
+      setIsClosingCamera(false);
+    }, 120);
+  }
+
   useEffect(() => {
-    console.log(videoUri);
+    if (capturedMedia) {
+      getPost(capturedMedia);
+      closeCameraSafely();
+      setCapturedMedia(null);
+    }
 
     return () => {
-      clearInterval(timerIntervalRef.current);
+      clearRecordingTimer();
     };
-  }, [videoUri]);
+  }, [capturedMedia]);
 
   useEffect(() => {
-    if (image) {
-      // navigation.navigate({
-      //   name: screenName.current,
-      //   params: { image: image },
-      //   merge: true,
-      // });
-      getPost(image);
-      setShowCamera(false);
+    if (!showCamera) {
+      clearRecordingTimer();
+      setRecording(false);
+      updateRecordingState("idle");
+      setElapsedTime(0);
     }
-  }, [image]);
+  }, [showCamera]);
 
   if (!permission || !audioPermission) {
     // Camera permissions are still loading
@@ -115,50 +141,92 @@ function CameraScreen({ showCamera, setShowCamera, getPost, mode, setExit }) {
   function toggleCameraFace() {
     setFacing((current) => (current === "back" ? "front" : "back"));
   }
+
   const startRecording = async () => {
-    if (camera) {
+    const camera = cameraRef.current;
+    if (!camera || recordingStateRef.current !== "idle") {
+      return;
+    }
+
+    try {
+      updateRecordingState("starting");
       setRecording(true);
       setElapsedTime(0);
+      clearRecordingTimer();
       timerIntervalRef.current = setInterval(() => {
         setElapsedTime((prevTime) => prevTime + 1);
       }, 1000);
 
-      const videoRecordOptions = {
-        quality: "720p",
-        // maxDuration: 30, // Set the maximum duration for the video (in seconds)
-      };
+      updateRecordingState("recording");
+      const videoRecordOptions = { quality: "720p" };
+      const recordedVideo = await camera.recordAsync(videoRecordOptions);
 
-      camera.recordAsync(videoRecordOptions).then((recordedVideo) => {
-        setVideoUri(recordedVideo.uri);
-      });
+      clearRecordingTimer();
+      setRecording(false);
+      updateRecordingState("idle");
+
+      if (recordedVideo?.uri) {
+        setCapturedMedia({
+          uri: recordedVideo.uri,
+          mediaType: "video",
+          width: recordedVideo.width || null,
+          height: recordedVideo.height || null,
+          duration: recordedVideo.duration || null,
+        });
+      }
+    } catch (error) {
+      clearRecordingTimer();
+      setRecording(false);
+      updateRecordingState("idle");
+      Alert.alert("Video capture failed", error?.message || "Unable to record video right now.");
     }
   };
 
   const stopRecording = async () => {
-    if (camera) {
-      setRecording(false);
-      clearInterval(timerIntervalRef.current);
+    const camera = cameraRef.current;
+    if (!camera || recordingStateRef.current !== "recording") {
+      return;
+    }
 
+    try {
+      updateRecordingState("stopping");
+      clearRecordingTimer();
       camera.stopRecording();
+    } catch (error) {
+      setRecording(false);
+      updateRecordingState("idle");
+      Alert.alert("Stop recording failed", error?.message || "Unable to stop recording.");
     }
   };
+
   const takeVideoHandler = async () => {
-    if (recording) {
-      stopRecording();
+    if (recordingStateRef.current === "recording") {
+      await stopRecording();
     } else {
-      startRecording();
+      await startRecording();
     }
   };
+
   async function takePickerHandler() {
-    console.log("first");
+    const camera = cameraRef.current;
     if (camera) {
-      const cameraOptions = {
-        quality: 1,
-        ratio: mode === "story" ? "9:16" : undefined,
-      };
-      const data = await camera.takePictureAsync(cameraOptions);
-      console.log(data);
-      setImage(data.uri);
+      try {
+        const cameraOptions = {
+          quality: 1,
+          ratio: mode === "story" ? "9:16" : undefined,
+        };
+        const data = await camera.takePictureAsync(cameraOptions);
+        if (data?.uri) {
+          setCapturedMedia({
+            uri: data.uri,
+            mediaType: "image",
+            width: data.width || null,
+            height: data.height || null,
+          });
+        }
+      } catch (error) {
+        Alert.alert("Camera failed", error?.message || "Unable to take a picture right now.");
+      }
     }
   }
 
@@ -174,8 +242,15 @@ function CameraScreen({ showCamera, setShowCamera, getPost, mode, setExit }) {
       quality: 1,
     });
 
-    if (!result.canceled) {
-      setImage(result.assets[0].uri);
+    if (!result.canceled && result?.assets?.[0]?.uri) {
+      const asset = result.assets[0];
+      setCapturedMedia({
+        uri: asset.uri,
+        mediaType: mode === "video" ? "video" : "image",
+        width: asset.width || null,
+        height: asset.height || null,
+        duration: asset.duration || null,
+      });
     }
   }
 
@@ -191,12 +266,12 @@ function CameraScreen({ showCamera, setShowCamera, getPost, mode, setExit }) {
             if (setExit) {
               setExit(true);
             }
-            setShowCamera(false);
+            closeCameraSafely();
           }}
           contentContainerStyle={styles.container}
         >
           <CameraView
-            ref={(ref) => setCamera(ref)}
+            ref={cameraRef}
             style={styles.camera}
             facing={facing}
           >
@@ -223,9 +298,10 @@ function CameraScreen({ showCamera, setShowCamera, getPost, mode, setExit }) {
                   </Pressable>
                 )}
                 <Pressable
+                  disabled={recordingState !== "idle" && recordingState !== "recording"}
                   onPress={() => {
                     if (mode === "video") {
-                      // takeVideoHandler();
+                      takeVideoHandler();
                     } else {
                       takePickerHandler();
                     }

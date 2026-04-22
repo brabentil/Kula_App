@@ -56,6 +56,22 @@ function getDistanceScore(baseLocation = {}, userLocation = {}) {
   return Math.max(0, 1 - distance);
 }
 
+function getDistanceKmApprox(baseLocation = {}, userLocation = {}) {
+  const lat1 = toNumber(baseLocation.latitude);
+  const lon1 = toNumber(baseLocation.longitude);
+  const lat2 = toNumber(userLocation.latitude);
+  const lon2 = toNumber(userLocation.longitude);
+
+  if (lat1 === null || lon1 === null || lat2 === null || lon2 === null) {
+    return null;
+  }
+
+  const latDiff = lat1 - lat2;
+  const lonDiff = lon1 - lon2;
+  const distanceDegrees = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
+  return distanceDegrees * 111;
+}
+
 function getInterestScore(currentInterests = [], candidateInterests = []) {
   if (!Array.isArray(currentInterests) || currentInterests.length === 0) {
     return 0;
@@ -87,8 +103,9 @@ function rankUsers(users = [], context = {}) {
     .map((item) => {
       const interestScore = getInterestScore(currentInterests, item.interests || []);
       const distanceScore = getDistanceScore(baseLocation, item.location || {});
+      const distanceKmApprox = getDistanceKmApprox(baseLocation, item.location || {});
       const rankingScore = interestScore * 10 + distanceScore;
-      return { ...item, rankingScore };
+      return { ...item, rankingScore, distanceScore, distanceKmApprox };
     })
     .sort((a, b) => b.rankingScore - a.rankingScore);
 }

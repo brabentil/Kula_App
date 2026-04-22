@@ -20,6 +20,15 @@ import { fetchNearbyUsers } from "../services/repositories/discoveryRepository";
 import { sendWave } from "../services/repositories/wavesRepository";
 
 const FILTERS = ["New Arrivals", "Same Country", "Same Interests", "Nearby"];
+const NEARBY_DISTANCE_KM = 500;
+const NEW_ARRIVAL_WINDOW_YEARS = 2;
+
+function normalizeText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
 
 // ── Person card ────────────────────────────────────────────────────────────────
 function PersonCard({ person, onWave, isWaved, isWaving }) {
@@ -65,7 +74,12 @@ function PersonCard({ person, onWave, isWaved, isWaving }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.profileBtn}
-          onPress={() => navigation.navigate("UserProfileScreen")}
+          onPress={() =>
+            navigation.navigate("UserProfileScreen", {
+              user: person,
+              userId: person?._id || person?.id || null,
+            })
+          }
           activeOpacity={0.85}
         >
           <Text style={styles.profileBtnText}>View Profile</Text>
@@ -144,24 +158,42 @@ export default function FindFriendsScreen() {
 
   const filteredPeople = useMemo(() => {
     const currentUser = authCtx.userData || {};
-    const currentInterests = new Set((currentUser.interests || []).map((item) => item.toLowerCase()));
+    const currentInterests = new Set(
+      (currentUser.interests || []).map((item) => normalizeText(item))
+    );
+    const currentCountry = normalizeText(currentUser.originCountry);
+    const currentYear = new Date().getFullYear();
+    const minArrivalYear = currentYear - NEW_ARRIVAL_WINDOW_YEARS;
 
     if (selectedFilter === "Same Country") {
-      return people.filter((person) => person.originCountry === currentUser.originCountry);
+      return people.filter((person) => normalizeText(person.originCountry) === currentCountry);
     }
 
     if (selectedFilter === "Same Interests") {
-      return people.filter((person) =>
-        (person.interests || []).some((interest) => currentInterests.has(String(interest).toLowerCase()))
-      );
+      return people
+        .map((person) => {
+          const sharedCount = (person.interests || []).reduce((count, interest) => {
+            return currentInterests.has(normalizeText(interest)) ? count + 1 : count;
+          }, 0);
+          return { ...person, sharedInterestsCount: sharedCount };
+        })
+        .filter((person) => person.sharedInterestsCount > 0)
+        .sort((a, b) => b.sharedInterestsCount - a.sharedInterestsCount);
     }
 
     if (selectedFilter === "Nearby") {
-      return [...people].sort((a, b) => Number(b.rankingScore || 0) - Number(a.rankingScore || 0));
+      return people
+        .filter((person) => {
+          const distance = Number(person.distanceKmApprox);
+          return Number.isFinite(distance) && distance <= NEARBY_DISTANCE_KM;
+        })
+        .sort((a, b) => Number(a.distanceKmApprox || Infinity) - Number(b.distanceKmApprox || Infinity));
     }
 
     if (selectedFilter === "New Arrivals") {
-      return [...people].sort((a, b) => Number(b.arrivalYear || 0) - Number(a.arrivalYear || 0));
+      return people
+        .filter((person) => Number(person.arrivalYear || 0) >= minArrivalYear)
+        .sort((a, b) => Number(b.arrivalYear || 0) - Number(a.arrivalYear || 0));
     }
 
     return people;
@@ -226,7 +258,15 @@ export default function FindFriendsScreen() {
         )}
         ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
         ListEmptyComponent={
-          !isLoading ? <Text style={styles.emptyText}>No people found right now.</Text> : null
+          !isLoading ? (
+            <Text style={styles.emptyText}>
+              {selectedFilter === "Nearby"
+                ? "No nearby people found with location enabled."
+                : selectedFilter === "New Arrivals"
+                  ? "No recent arrivals found right now."
+                  : "No people found right now."}
+            </Text>
+          ) : null
         }
       />
 

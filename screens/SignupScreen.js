@@ -1,9 +1,8 @@
-import { View, Text, StyleSheet, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, useWindowDimensions, Image } from "react-native";
 import React from "react";
 import SignupForm from "../components/signupScreen/SignupForm";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KULA } from "../constants/Styles";
-import { Ionicons } from "@expo/vector-icons";
 
 const SignupScreen = ({ navigation }) => {
   const { width, height } = useWindowDimensions();
@@ -41,7 +40,11 @@ const SignupScreen = ({ navigation }) => {
       {/* Header */}
       <View style={[styles.header, { marginTop: height * 0.06, paddingHorizontal: cardHorizontal + 4 }]}>
         <View style={styles.logoContainer}>
-          <Ionicons name="people-outline" size={34} color={KULA.terracotta} />
+          <Image
+            source={require("../assets/kula-loading-mark-dark.png")}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
         </View>
         <Text style={styles.heading}>Join KULA</Text>
         <Text style={styles.subtitle}>Create your account and find your community</Text>
@@ -78,7 +81,7 @@ const styles = StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 20,
-    backgroundColor: "rgba(193,96,58,0.14)",
+    backgroundColor: "#F8F2E7",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 18,
@@ -87,6 +90,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 10,
     elevation: 4,
+  },
+  logoImage: {
+    width: 52,
+    height: 52,
   },
   heading: {
     fontSize: 28,

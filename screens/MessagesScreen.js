@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { KULA } from "../constants/Styles";
 import FAB from "../components/UI/FAB";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { AuthContext } from "../store/auth-context";
 import {
   fetchThreads,
@@ -77,13 +77,56 @@ function formatThreadTime(value) {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function normalizeName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function inferPreviewLabel(payload, currentUserId, currentUserName, fallbackContactName) {
+  const messageText = String(payload?.lastMessage || payload?.lastMessageText || "").trim();
+  if (!messageText) {
+    return "Open chat";
+  }
+
+  const lastSenderId = payload?.lastSenderId || "";
+  if (lastSenderId) {
+    const label =
+      lastSenderId === currentUserId
+        ? "You"
+        : payload?.lastSenderName || fallbackContactName || "Contact";
+    return label + ": " + messageText;
+  }
+
+  const waveMatch = messageText.match(/^👋\s*Wave from\s+(.+)$/i);
+  if (waveMatch?.[1] && normalizeName(waveMatch[1]) === normalizeName(currentUserName)) {
+    return "You: " + messageText;
+  }
+
+  if (payload?.preview) {
+    return payload.preview;
+  }
+  return (payload?.lastSenderName || fallbackContactName || "Contact") + ": " + messageText;
+}
+
 // ── Messages Screen ────────────────────────────────────────────────────────────
 export default function MessagesScreen() {
+  const THREADS_REFRESH_WINDOW_MS = 30000;
   const navigation = useNavigation();
   const authCtx = useContext(AuthContext);
   const [search, setSearch] = useState("");
   const [threads, setThreads] = useState([]);
   const [isLoadingThreads, setIsLoadingThreads] = useState(true);
+  const [isRefreshingThreads, setIsRefreshingThreads] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastRemoteFetchAt, setLastRemoteFetchAt] = useState(0);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setRefreshKey((value) => value + 1);
+    }, [])
+  );
 
   useEffect(() => {
     let active = true;
@@ -98,38 +141,19 @@ export default function MessagesScreen() {
         return;
       }
 
-      setIsLoadingThreads(true);
-      const remoteResult = await fetchThreads(userId, 100);
-      if (active && remoteResult.ok && remoteResult.data.length > 0) {
-        const mapped = remoteResult.data.map((item) => ({
-          _id: item.id || item._id,
-          contactName: item.contactName || item.title || item.name || "Chat",
-          contactInitials: item.contactInitials || "CU",
-          preview: item.preview || item.lastMessage || item.lastMessageText || "Open chat",
-          timestamp: formatThreadTime(item.lastMessageAt || item.updatedAt || item.createdAt),
-          unread: Number(item.unreadCount || 0),
-          image:
-            item.contactAvatar ||
-            item.image ||
-            "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=200&q=80",
-          isGroup: Boolean(item.isGroup),
-        }));
-        setThreads(mapped);
-        setIsLoadingThreads(false);
-        return;
-      }
-
       const cachedResult = loadCachedThreads(100);
       if (active && cachedResult.ok && cachedResult.data.length > 0) {
         const mapped = cachedResult.data.map((item) => ({
           _id: item.id,
-          contactName: item.payload?.contactName || item.payload?.title || item.payload?.name || "Chat",
+          contactName:
+            item.payload?.contactName || item.payload?.title || item.payload?.name || "Chat",
           contactInitials: item.payload?.contactInitials || "CU",
-          preview:
-            item.payload?.preview ||
-            item.payload?.lastMessage ||
-            item.payload?.lastMessageText ||
-            "Open chat",
+          preview: inferPreviewLabel(
+            item.payload || {},
+            userId,
+            authCtx.userData?.fullName || "",
+            item.payload?.contactName || item.payload?.title || item.payload?.name || "Chat"
+          ),
           timestamp: formatThreadTime(
             item.payload?.lastMessageAt || item.payload?.updatedAt || item.payload?.createdAt
           ),
@@ -141,8 +165,55 @@ export default function MessagesScreen() {
           isGroup: Boolean(item.payload?.isGroup),
         }));
         setThreads(mapped);
+        setIsLoadingThreads(false);
+      }
+
+      const shouldSkipRemote =
+        threads.length > 0 && Date.now() - lastRemoteFetchAt < THREADS_REFRESH_WINDOW_MS;
+
+      if (shouldSkipRemote) {
+        if (active) {
+          setIsRefreshingThreads(false);
+          setIsLoadingThreads(false);
+        }
+        return;
+      }
+
+      if (active) {
+        if (threads.length === 0) {
+          setIsLoadingThreads(true);
+        } else {
+          setIsRefreshingThreads(true);
+        }
+      }
+
+      const remoteResult = await fetchThreads(userId, 100, {
+        currentUserName: authCtx.userData?.fullName || "",
+      });
+      if (active && remoteResult.ok && remoteResult.data.length > 0) {
+        const mapped = remoteResult.data.map((item) => ({
+          _id: item.id || item._id,
+          contactName: item.contactName || item.title || item.name || "Chat",
+          contactInitials: item.contactInitials || "CU",
+          preview: inferPreviewLabel(
+            item,
+            userId,
+            authCtx.userData?.fullName || "",
+            item.contactName || item.title || item.name || "Chat"
+          ),
+          timestamp: formatThreadTime(item.lastMessageAt || item.updatedAt || item.createdAt),
+          unread: Number(item.unreadCount || 0),
+          image:
+            item.contactAvatar ||
+            item.image ||
+            "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=200&q=80",
+          isGroup: Boolean(item.isGroup),
+        }));
+        setThreads(mapped);
+        setLastRemoteFetchAt(Date.now());
       }
       if (active) {
+        setIsRefreshingThreads(false);
         setIsLoadingThreads(false);
       }
     }
@@ -151,7 +222,7 @@ export default function MessagesScreen() {
     return () => {
       active = false;
     };
-  }, [authCtx.userData]);
+  }, [authCtx.userData, refreshKey, threads.length, lastRemoteFetchAt]);
 
   const filtered = threads.filter(
     (t) =>
@@ -186,6 +257,12 @@ export default function MessagesScreen() {
                 onChangeText={setSearch}
               />
             </View>
+            {isRefreshingThreads ? (
+              <View style={styles.refreshRow}>
+                <ActivityIndicator size="small" color={KULA.teal} />
+                <Text style={styles.refreshText}>Refreshing...</Text>
+              </View>
+            ) : null}
 
             <View style={{ height: 8 }} />
           </>
@@ -238,6 +315,17 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   searchInput: { flex: 1, fontSize: 15, color: KULA.brown },
+  refreshRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 22,
+    marginTop: 8,
+  },
+  refreshText: {
+    fontSize: 12,
+    color: KULA.muted,
+  },
   emptyWrap: {
     paddingHorizontal: 20,
     paddingVertical: 28,

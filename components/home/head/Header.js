@@ -44,7 +44,12 @@ const Header = ({ navigation }) => {
     <View style={styles.container}>
     {/* Avatar placeholder — coloured initials circle */}
     <Pressable
-      onPress={() => navigation.navigate("UserProfileScreen")}
+      onPress={() =>
+        navigation.navigate("UserProfileScreen", {
+          user: authCtx.userData || null,
+          userId: authCtx.userData?._id || authCtx.userData?.id || null,
+        })
+      }
     >
       <PressEffect>
         <View style={styles.avatar}>

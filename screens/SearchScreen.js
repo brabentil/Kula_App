@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -29,15 +29,32 @@ const SearchScreen = ({ navigation }) => {
   const [inputFocused, setInputFocused] = useState(false);
   const [searchSource, setSearchSource] = useState("remote");
   const [isSearching, setIsSearching] = useState(false);
-  async function searchUser(text) {
+  const latestQueryId = useRef(0);
+  const debounceTimer = useRef(null);
+  function searchUser(text) {
     setSearch(text);
-    if (text.length > 0) {
-      setIsSearching(true);
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+    if (text.length === 0) {
+      setUsers([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    const queryId = latestQueryId.current + 1;
+    latestQueryId.current = queryId;
+
+    debounceTimer.current = setTimeout(async () => {
       const result = await fetchNearbyUsers({
         searchText: text,
         maxResults: 30,
         currentUser: authCtx.userData || {},
       });
+      if (queryId !== latestQueryId.current) {
+        return;
+      }
 
       if (result.ok) {
         setUsers(result.data);
@@ -46,16 +63,20 @@ const SearchScreen = ({ navigation }) => {
         setUsers([]);
       }
       setIsSearching(false);
-    } else {
-      setUsers([]);
-      setIsSearching(false);
-    }
+    }, 300);
   }
   useEffect(() => {
     navigation.setOptions({
       headerShown: true,
       title: "Search Friends",
     });
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+    };
   }, []);
   return (
     <KeyboardAvoidingView

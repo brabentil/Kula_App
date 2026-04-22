@@ -15,17 +15,65 @@ import InputField from "../components/InputField";
 import { Ionicons } from "@expo/vector-icons";
 import CameraScreen from "./CameraScreen";
 import { AuthContext } from "../store/auth-context";
-import { getFilename } from "../utils/helperFunctions";
 import ProgressOverlay from "../components/ProgressOverlay";
 import ErrorOverlay from "../components/ErrorOverlay";
 import UploadIcon from "../assets/UploadIcon";
 import { Platform } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { getUiState, upsertUiState } from "../services/localdb/cacheRepository";
+import { Video } from "expo-av";
+import { createPostEntry } from "../services/repositories/postsRepository";
+import { uploadMediaFromUri } from "../services/firebase/storageService";
 
 const { width, height } = Dimensions.get("window");
 const PLACEHOLDER_IMAGE =
   "https://img.freepik.com/free-vector/image-folder-concept-illustration_114360-114.jpg?t=st=1708625623~exp=1708629223~hmac=155af0101788f9a6c147e4a7fa105127a5089c3bf46ded7b7cd2f15de53ec39c&w=740";
+
+function initialsFromName(name = "") {
+  return String(name)
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
+}
+
+function inferMediaType(uri = "", explicitType = "") {
+  if (explicitType === "video") {
+    return "video";
+  }
+  const normalized = String(uri || "").toLowerCase();
+  if (/\.(mp4|mov|webm|m4v|avi|mkv)(\?|$)/.test(normalized)) {
+    return "video";
+  }
+  return "image";
+}
+
+function normalizeSelectedMedia(value, explicitType = "") {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return {
+      uri: value,
+      mediaType: inferMediaType(value, explicitType),
+      width: null,
+      height: null,
+    };
+  }
+
+  const uri = String(value.uri || "");
+  if (!uri) {
+    return null;
+  }
+  return {
+    uri,
+    mediaType: value.mediaType || inferMediaType(uri, explicitType),
+    width: value.width || null,
+    height: value.height || null,
+    duration: value.duration || null,
+  };
+}
 
 function NewPostScreen({ navigation, route }) {
   const authCtx = useContext(AuthContext);
@@ -42,6 +90,7 @@ function NewPostScreen({ navigation, route }) {
     progress: 0,
     success: true,
   });
+  const [uploadErrorMessage, setUploadErrorMessage] = useState("Uploading Failed");
 
   useEffect(() => {
     navigation.setOptions({
@@ -65,11 +114,11 @@ function NewPostScreen({ navigation, route }) {
     if (saved.ok && saved.data?.payload) {
       const draft = saved.data.payload;
       setCaption(String(draft.caption || ""));
-      setPost(draft.post || null);
+      setPost(normalizeSelectedMedia(draft.post || null, draft.type || type));
       setType(draft.type || type);
       draftRef.current = {
         caption: String(draft.caption || ""),
-        post: draft.post || null,
+        post: normalizeSelectedMedia(draft.post || null, draft.type || type),
         type: draft.type || type,
       };
     }
@@ -87,23 +136,52 @@ function NewPostScreen({ navigation, route }) {
   }, []);
   async function newPostHandler() {
     if (post) {
-      const filenameData = getFilename(post);
+      const user = authCtx.userData || {};
+      const userId = user._id || user.id;
+      if (!userId) {
+        return;
+      }
 
-      const formData = new FormData();
-      formData.append("userId", authCtx.userData._id);
-      formData.append("description", caption);
-
-      formData.append("picture", {
-        uri: post,
-        type: "image/" + filenameData.fileType,
-        name: filenameData.name,
-      });
-      formData.append("picturePath", filenameData.name);
+      const mediaType = post.mediaType || inferMediaType(post.uri, type);
       try {
+        setUploadErrorMessage("Uploading Failed");
         setUploading((prevData) => {
-          return { ...prevData, status: true };
+          return { ...prevData, status: true, success: true };
         });
-        setTimeout(() => {
+
+        const uploadResult = await uploadMediaFromUri({
+          uri: post.uri,
+          userId,
+          mediaType,
+          folder: "posts",
+        });
+        if (!uploadResult.ok) {
+          console.log("Storage upload error", {
+            code: uploadResult.error?.code,
+            message: uploadResult.error?.message,
+            serverResponse: uploadResult.error?.serverResponse || "",
+          });
+          throw new Error(uploadResult.error?.message || "Unable to upload media");
+        }
+
+        const createResult = await createPostEntry({
+          userId,
+          description: caption,
+          picturePath: uploadResult.data.downloadURL,
+          fileType: mediaType,
+          mediaType,
+          mediaWidth: post.width,
+          mediaHeight: post.height,
+          storagePath: uploadResult.data.storagePath,
+          userFullName: user.fullName || "",
+          userPicturePath: user.picturePath || "",
+          userInitials: initialsFromName(user.fullName || user.username || ""),
+        });
+
+        if (!createResult.ok) {
+          throw new Error(createResult.error?.message || "Unable to create post");
+        }
+
           upsertUiState(draftKey, {
             caption: "",
             post: null,
@@ -112,12 +190,12 @@ function NewPostScreen({ navigation, route }) {
           });
           setUploading({ status: false, progress: 0, success: true });
           navigation.goBack();
-        }, 3000);
       } catch (error) {
+        setUploadErrorMessage(error?.message || "Uploading Failed");
         setUploading((prevData) => {
-          return { ...prevData, success: false };
-        }),
-          console.log(error.message);
+          return { ...prevData, status: true, success: false };
+        });
+        console.log(error.message);
       }
     }
   }
@@ -130,7 +208,7 @@ function NewPostScreen({ navigation, route }) {
       <CameraScreen
         showCamera={showCamera}
         setShowCamera={setShowCamera}
-        getPost={setPost}
+        getPost={(selectedMedia) => setPost(normalizeSelectedMedia(selectedMedia, type))}
         mode={type === "video" ? type : undefined}
       />
       {!post ? (
@@ -169,46 +247,54 @@ function NewPostScreen({ navigation, route }) {
                 overflow: "hidden",
               }}
             >
-              <ImageBackground
-                source={{
-                  uri: post,
-                }}
+              {post.mediaType === "video" ? (
+                <Video
+                  source={{ uri: post.uri }}
+                  style={{ flex: 1 }}
+                  useNativeControls
+                  shouldPlay={false}
+                  resizeMode={resizeModeCover ? "cover" : "contain"}
+                />
+              ) : (
+                <ImageBackground
+                  source={{
+                    uri: post.uri,
+                  }}
+                  style={{
+                    flex: 1,
+                  }}
+                  imageStyle={{
+                    resizeMode: resizeModeCover ? "cover" : "contain",
+                  }}
+                />
+              )}
+              <Pressable
                 style={{
-                  flex: 1,
+                  position: "absolute",
+                  right: 20,
+                  bottom: 20,
                 }}
-                imageStyle={{
-                  resizeMode: resizeModeCover ? "cover" : "contain",
+                onPress={() => {
+                  setResizeModeCover(!resizeModeCover);
                 }}
               >
                 <Pressable
                   style={{
-                    flex: 1,
-                    alignItems: "flex-end",
-                    justifyContent: "flex-end",
-                    margin: 20,
+                    backgroundColor: "white",
+                    borderRadius: 50,
+                    padding: 10,
                   }}
                   onPress={() => {
-                    setResizeModeCover(!resizeModeCover);
+                    setShowCamera(true);
                   }}
                 >
-                  <Pressable
-                    style={{
-                      backgroundColor: "white",
-                      borderRadius: 50,
-                      padding: 10,
-                    }}
-                    onPress={() => {
-                      setShowCamera(true);
-                    }}
-                  >
-                    <Ionicons
-                      name="sync-outline"
-                      size={25}
-                      color={GlobalStyles.colors.blue}
-                    />
-                  </Pressable>
+                  <Ionicons
+                    name="sync-outline"
+                    size={25}
+                    color={GlobalStyles.colors.blue}
+                  />
                 </Pressable>
-              </ImageBackground>
+              </Pressable>
             </View>
             <View style={{ marginTop: 10 }}>
               <InputField
@@ -239,9 +325,10 @@ function NewPostScreen({ navigation, route }) {
             />
           ) : (
             <ErrorOverlay
-              message={"Uploading Failed"}
+              message={uploadErrorMessage}
               onClose={() => {
                 setUploading({ status: false, progress: 0, success: true });
+                setUploadErrorMessage("Uploading Failed");
               }}
             />
           )}

@@ -9,6 +9,7 @@ import {
   ImageBackground,
 } from "react-native";
 import React, { useContext, useEffect, useState } from "react";
+import { Video } from "expo-av";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation } from "@react-navigation/native";
 import { DEFAULT_DP, GlobalStyles } from "../../../constants/Styles";
@@ -17,10 +18,24 @@ import { timeDifference } from "../../../utils/helperFunctions";
 import { AuthContext } from "../../../store/auth-context";
 import PressEffect from "../../UI/PressEffect";
 import { LinearGradient } from "expo-linear-gradient";
+import { inferMediaTypeFromPost } from "../../../utils/media";
 const { height, width } = Dimensions.get("window");
 
 function PostAdvance({ post }) {
   const authCtx = useContext(AuthContext);
+  const postUser = {
+    _id: post.userId || post.authorId || "",
+    id: post.userId || post.authorId || "",
+    fullName: post.userFullName || post.username || "Kula User",
+    picturePath: post.userPicturePath || "",
+    originCountry: post.originCountry || "",
+    originFlag: post.originFlag || "",
+    currentCity: post.currentCity || "",
+    arrivalYear: post.arrivalYear || null,
+    bio: post.userBio || "",
+    interests: Array.isArray(post.userInterests) ? post.userInterests : [],
+  };
+  const mediaType = inferMediaTypeFromPost(post);
 
   function Avatar() {
     const navigation = useNavigation();
@@ -38,6 +53,8 @@ function PostAdvance({ post }) {
               navigation.navigate("UserProfileScreen", {
                 backWhite: true,
                 ViewUser: true,
+                userId: postUser._id || postUser.id || null,
+                user: postUser,
               });
             }}
           >
@@ -63,7 +80,7 @@ function PostAdvance({ post }) {
                   fontSize: 15,
                 }}
               >
-                username
+                {postUser.fullName}
               </Text>
               <Text
                 style={{
@@ -140,14 +157,24 @@ function PostAdvance({ post }) {
     const [ratio, setRatio] = useState(1);
 
     useEffect(() => {
-      Image.getSize(post.picturePath, (width, height) => {
-        const imageRatio = width / height;
-        if (imageRatio < 0.9) {
+      if (mediaType === "video") {
+        setRatio(1);
+        return;
+      }
+      Image.getSize(
+        post.picturePath,
+        (width, height) => {
+          const imageRatio = width / height;
+          if (imageRatio < 0.9) {
+            setRatio(1);
+          } else {
+            setRatio(imageRatio);
+          }
+        },
+        () => {
           setRatio(1);
-        } else {
-          setRatio(imageRatio);
         }
-      });
+      );
     }, [post]);
 
     return (
@@ -163,30 +190,49 @@ function PostAdvance({ post }) {
           console.log("object");
         }}
       >
-        <ImageBackground
-          source={{ uri: post.picturePath }}
-          style={{
-            width: "100%",
-            aspectRatio: ratio,
-            backgroundColor: GlobalStyles.colors.primary500,
-          }}
-          imageStyle={{
-            resizeMode: resizeModeCover ? "cover" : "contain",
-          }}
-        >
-          <LinearGradient
-            colors={["rgba(0,0,0,.5)", "transparent"]}
-            start={{ x: 0, y: 1 }}
-            end={{ x: 0, y: 0 }}
+        {mediaType === "video" ? (
+          <View
             style={{
-              bottom: 0,
-              height: 40 + 50,
               width: "100%",
-              position: "absolute",
+              aspectRatio: ratio,
+              backgroundColor: GlobalStyles.colors.primary500,
             }}
-          />
-          {children}
-        </ImageBackground>
+          >
+            <Video
+              source={{ uri: post.picturePath }}
+              style={{ flex: 1 }}
+              useNativeControls
+              shouldPlay={false}
+              resizeMode={resizeModeCover ? "cover" : "contain"}
+            />
+            {children}
+          </View>
+        ) : (
+          <ImageBackground
+            source={{ uri: post.picturePath }}
+            style={{
+              width: "100%",
+              aspectRatio: ratio,
+              backgroundColor: GlobalStyles.colors.primary500,
+            }}
+            imageStyle={{
+              resizeMode: resizeModeCover ? "cover" : "contain",
+            }}
+          >
+            <LinearGradient
+              colors={["rgba(0,0,0,.5)", "transparent"]}
+              start={{ x: 0, y: 1 }}
+              end={{ x: 0, y: 0 }}
+              style={{
+                bottom: 0,
+                height: 40 + 50,
+                width: "100%",
+                position: "absolute",
+              }}
+            />
+            {children}
+          </ImageBackground>
+        )}
       </Pressable>
     );
   }

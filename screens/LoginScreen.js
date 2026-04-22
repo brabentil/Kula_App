@@ -1,9 +1,8 @@
-import { View, Text, StyleSheet, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, useWindowDimensions, Image } from "react-native";
 import React from "react";
 import LoginForm from "../components/loginScreen/LoginForm";
 import { KULA } from "../constants/Styles";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 
 const LoginScreen = ({ navigation }) => {
   const { width, height } = useWindowDimensions();
@@ -41,7 +40,11 @@ const LoginScreen = ({ navigation }) => {
       {/* Header area */}
       <View style={[styles.header, { marginTop: height * 0.08, paddingHorizontal: cardHorizontal + 4 }]}>
         <View style={styles.logoContainer}>
-          <Ionicons name="aperture-outline" size={36} color={KULA.teal} />
+          <Image
+            source={require("../assets/kula-loading-mark-dark.png")}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
         </View>
         <Text style={styles.welcomeText}>Welcome back</Text>
         <Text style={styles.subtitleText}>
@@ -89,6 +92,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 10,
     elevation: 4,
+  },
+  logoImage: {
+    width: 52,
+    height: 52,
   },
   welcomeText: {
     fontSize: 28,

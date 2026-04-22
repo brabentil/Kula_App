@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import React, { useContext, useState } from "react";
 import { Formik } from "formik";
 import * as yup from "yup";
@@ -8,15 +8,23 @@ import Button from "../Button";
 import InputField from "../InputField";
 import { KULA } from "../../constants/Styles";
 import { AuthContext } from "../../store/auth-context";
+import { getFriendlyAuthErrorMessage } from "../../utils/authErrorMessage";
 
 const SignupForm = ({ navigation }) => {
   const authCtx = useContext(AuthContext);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const SignupFormSchema = yup.object().shape({
-    fullname: yup.string().min(2, "Full name must contain at least 2 characters."),
+    fullname: yup
+      .string()
+      .required("Full name is required.")
+      .min(2, "Full name must contain at least 2 characters."),
     email: yup.string().email().required("Email address is required."),
-    password: yup.string().min(8, "Password must have at least 8 characters."),
+    password: yup
+      .string()
+      .required("Password is required.")
+      .min(8, "Password must have at least 8 characters."),
     username: yup
       .string()
       .required()
@@ -27,6 +35,7 @@ const SignupForm = ({ navigation }) => {
     if (isSubmitting) {
       return;
     }
+    setFormError("");
     setIsSubmitting(true);
     const registerResult = await authCtx.register({
       email: String(email || "").trim().toLowerCase(),
@@ -36,10 +45,7 @@ const SignupForm = ({ navigation }) => {
     setIsSubmitting(false);
 
     if (!registerResult.ok) {
-      Alert.alert(
-        "Sign up failed",
-        registerResult.error?.message || "Something went wrong."
-      );
+      setFormError(getFriendlyAuthErrorMessage(registerResult.error));
     }
   };
 
@@ -61,7 +67,10 @@ const SignupForm = ({ navigation }) => {
                 placeholder="Your full name"
                 keyboardType="default"
                 textContentType="name"
-                onChangeText={handleChange("fullname")}
+                onChangeText={(value) => {
+                  setFormError("");
+                  handleChange("fullname")(value);
+                }}
                 onBlur={handleBlur("fullname")}
                 value={values.fullname}
                 inValid={values.fullname.length === 0 || values.fullname.length > 1}
@@ -79,7 +88,10 @@ const SignupForm = ({ navigation }) => {
                 placeholder="@yourhandle"
                 keyboardType="default"
                 textContentType="username"
-                onChangeText={handleChange("username")}
+                onChangeText={(value) => {
+                  setFormError("");
+                  handleChange("username")(value);
+                }}
                 onBlur={handleBlur("username")}
                 value={values.username}
                 inValid={values.username.length === 0 || values.username.length > 1}
@@ -97,7 +109,10 @@ const SignupForm = ({ navigation }) => {
                 placeholder="you@example.com"
                 keyboardType="email-address"
                 textContentType="emailAddress"
-                onChangeText={handleChange("email")}
+                onChangeText={(value) => {
+                  setFormError("");
+                  handleChange("email")(value);
+                }}
                 onBlur={handleBlur("email")}
                 value={values.email}
                 inValid={values.email.length < 1 || Validator.validate(values.email)}
@@ -115,7 +130,10 @@ const SignupForm = ({ navigation }) => {
                 placeholder="Min. 8 characters"
                 keyboardType="default"
                 textContentType="password"
-                onChangeText={handleChange("password")}
+                onChangeText={(value) => {
+                  setFormError("");
+                  handleChange("password")(value);
+                }}
                 onBlur={handleBlur("password")}
                 value={values.password}
                 inValid={values.password.length === 0 || values.password.length > 7}
@@ -128,6 +146,7 @@ const SignupForm = ({ navigation }) => {
             </View>
 
             <View style={styles.buttonWrapper}>
+              {!!formError && <Text style={styles.formError}>{formError}</Text>}
               <Button
                 title="Create account"
                 onPress={handleSubmit}
@@ -166,6 +185,12 @@ const styles = StyleSheet.create({
     color: KULA.error,
     marginTop: 5,
     marginLeft: 4,
+  },
+  formError: {
+    fontSize: 13,
+    color: KULA.error,
+    marginBottom: 10,
+    textAlign: "center",
   },
   buttonWrapper: { marginTop: 8, marginBottom: 20 },
   cta: {

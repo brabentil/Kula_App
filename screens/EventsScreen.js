@@ -8,6 +8,7 @@ import {
   Image,
   StatusBar,
   FlatList,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -38,15 +39,17 @@ const CATEGORIES = ["All", "Food", "Cultural", "Language", "Sports", "Tech"];
 
 // ── Event card ─────────────────────────────────────────────────────────────────
 function EventCard({ event, isJoined, onJoin }) {
+  const coverUri = event.image || event.coverImage;
+  const organiserUri = event.organiserPic;
   return (
     <View style={styles.eventCard}>
       {/* Cover image */}
-      <Image source={{ uri: event.image }} style={styles.eventImage} />
+      <Image source={{ uri: coverUri }} style={styles.eventImage} />
 
       {/* Info section */}
       <View style={styles.eventInfo}>
         <View style={styles.eventTopRow}>
-          <Image source={{ uri: event.organiserPic }} style={styles.organiserAvatar} />
+          <Image source={{ uri: organiserUri }} style={styles.organiserAvatar} />
           <View style={styles.eventMeta}>
             <Text style={styles.eventTitle}>{event.title}</Text>
             <Text style={styles.organiserName}>{event.organiser}</Text>
@@ -94,6 +97,9 @@ export default function EventsScreen() {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [joinedEventIds, setJoinedEventIds] = useState([]);
   const [events, setEvents] = useState([]);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
+  const [eventsError, setEventsError] = useState("");
+  const [sourceLabel, setSourceLabel] = useState("remote");
   const { scaleFont } = useResponsiveMetrics();
 
   const userId = authCtx.userData?._id || authCtx.userData?.id;
@@ -121,9 +127,13 @@ export default function EventsScreen() {
     let active = true;
 
     async function loadEvents() {
+      setIsLoadingEvents(true);
+      setEventsError("");
       const result = await fetchEvents(100);
       if (active && result.ok && Array.isArray(result.data) && result.data.length > 0) {
         setEvents(result.data);
+        setSourceLabel("remote");
+        setIsLoadingEvents(false);
         return;
       }
 
@@ -131,6 +141,16 @@ export default function EventsScreen() {
       if (active && cached.ok) {
         const mapped = cached.data.map((item) => ({ _id: item.id, id: item.id, ...item.payload }));
         setEvents(mapped);
+        setSourceLabel("cache");
+        if (mapped.length === 0 && result?.error) {
+          setEventsError(result.error.message || "Could not load events right now.");
+        }
+      } else if (active) {
+        setEvents([]);
+        setEventsError(result?.error?.message || cached?.error?.message || "Could not load events right now.");
+      }
+      if (active) {
+        setIsLoadingEvents(false);
       }
     }
 
@@ -164,6 +184,23 @@ export default function EventsScreen() {
         keyExtractor={(item) => item._id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            {isLoadingEvents ? (
+              <>
+                <ActivityIndicator color={KULA.teal} />
+                <Text style={styles.emptyText}>Loading events...</Text>
+              </>
+            ) : eventsError ? (
+              <>
+                <Text style={styles.emptyText}>Could not load events.</Text>
+                <Text style={styles.emptySubText}>{eventsError}</Text>
+              </>
+            ) : (
+              <Text style={styles.emptyText}>No events available yet.</Text>
+            )}
+          </View>
+        }
         ListHeaderComponent={() => (
           <>
             {/* Header */}
@@ -173,6 +210,7 @@ export default function EventsScreen() {
                 <Ionicons name="calendar-outline" size={24} color={KULA.brown} />
               </TouchableOpacity>
             </View>
+            <Text style={styles.sourceText}>Source: {sourceLabel}</Text>
 
             {/* Day selector */}
             <View style={styles.dayRow}>
@@ -243,6 +281,11 @@ export default function EventsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: KULA.cream },
   listContent: { paddingHorizontal: 20, paddingBottom: 120 },
+  sourceText: {
+    fontSize: 12,
+    color: KULA.muted,
+    marginBottom: 10,
+  },
 
   header: {
     flexDirection: "row",
@@ -374,5 +417,22 @@ const styles = StyleSheet.create({
   },
   joinBtnTextActive: {
     color: KULA.white,
+  },
+  emptyWrap: {
+    paddingVertical: 28,
+    alignItems: "center",
+  },
+  emptyText: {
+    color: KULA.brown,
+    fontSize: 15,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 8,
+  },
+  emptySubText: {
+    color: KULA.muted,
+    fontSize: 13,
+    marginTop: 6,
+    textAlign: "center",
   },
 });

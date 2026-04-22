@@ -53,9 +53,18 @@ const TabBar = ({ state, descriptors, navigation }) => {
   const bottomInsetPadding = Math.max(12, (insets.bottom || 0) + 2);
 
   const activeTabScreen = state.routes[state.index].name;
+  const shouldBlockScreenWithOverlay =
+    actionBtnPressed && activeTabScreen !== "DiscoverScreen";
+
+  useEffect(() => {
+    if (activeTabScreen === "DiscoverScreen" && actionBtnPressed) {
+      setActionBtnPressed(false);
+    }
+  }, [activeTabScreen, actionBtnPressed]);
+
   return (
     <Fragment>
-      {actionBtnPressed && (
+      {shouldBlockScreenWithOverlay && (
         <Animated.View
           style={{
             position: "absolute",

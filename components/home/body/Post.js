@@ -7,6 +7,7 @@ import {
   Pressable,
 } from "react-native";
 import React, { useContext, useEffect, useState } from "react";
+import { Video } from "expo-av";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation } from "@react-navigation/native";
 import { DEFAULT_DP, GlobalStyles } from "../../../constants/Styles";
@@ -15,10 +16,24 @@ import { timeDifference } from "../../../utils/helperFunctions";
 import { AuthContext } from "../../../store/auth-context";
 import { Path, Svg } from "react-native-svg";
 import PressEffect from "../../UI/PressEffect";
+import { inferMediaTypeFromPost } from "../../../utils/media";
 const { height, width } = Dimensions.get("window");
 
 function Post({ post }) {
   const authCtx = useContext(AuthContext);
+  const postUser = {
+    _id: post.userId || post.authorId || "",
+    id: post.userId || post.authorId || "",
+    fullName: post.userFullName || post.username || "Kula User",
+    picturePath: post.userPicturePath || "",
+    originCountry: post.originCountry || "",
+    originFlag: post.originFlag || "",
+    currentCity: post.currentCity || "",
+    arrivalYear: post.arrivalYear || null,
+    bio: post.userBio || "",
+    interests: Array.isArray(post.userInterests) ? post.userInterests : [],
+  };
+  const mediaType = inferMediaTypeFromPost(post);
   function PostHeader() {
     const navigation = useNavigation();
     const [profilePic, setProfilePic] = React.useState(
@@ -63,6 +78,8 @@ function Post({ post }) {
                   navigation.navigate("UserProfileScreen", {
                     backWhite: true,
                     ViewUser: true,
+                    userId: postUser._id || postUser.id || null,
+                    user: postUser,
                   });
                 }}
               >
@@ -88,7 +105,7 @@ function Post({ post }) {
                       fontSize: 15,
                     }}
                   >
-                    username
+                    {postUser.fullName}
                   </Text>
                   <Text
                     style={{
@@ -124,14 +141,24 @@ function Post({ post }) {
     const [ratio, setRatio] = useState(1);
 
     useEffect(() => {
-      Image.getSize(post.picturePath, (width, height) => {
-        const imageRatio = width / height;
-        if (imageRatio < 0.9) {
+      if (mediaType === "video") {
+        setRatio(1);
+        return;
+      }
+      Image.getSize(
+        post.picturePath,
+        (width, height) => {
+          const imageRatio = width / height;
+          if (imageRatio < 0.9) {
+            setRatio(1);
+          } else {
+            setRatio(imageRatio);
+          }
+        },
+        () => {
           setRatio(1);
-        } else {
-          setRatio(imageRatio);
         }
-      });
+      );
     }, [post]);
 
     return (
@@ -141,18 +168,35 @@ function Post({ post }) {
         }}
         style={{}}
       >
-        <Image
-          source={{ uri: post.picturePath }}
-          style={{
-            width: "100%",
-            aspectRatio: ratio,
-            borderRadius: 15,
-            resizeMode: resizeModeCover ? "cover" : "contain",
-            backgroundColor: GlobalStyles.colors.primary500,
-            borderWidth: 1,
-            borderColor: GlobalStyles.colors.primary500,
-          }}
-        />
+        {mediaType === "video" ? (
+          <Video
+            source={{ uri: post.picturePath }}
+            style={{
+              width: "100%",
+              aspectRatio: ratio,
+              borderRadius: 15,
+              backgroundColor: GlobalStyles.colors.primary500,
+              borderWidth: 1,
+              borderColor: GlobalStyles.colors.primary500,
+            }}
+            useNativeControls
+            shouldPlay={false}
+            resizeMode={resizeModeCover ? "cover" : "contain"}
+          />
+        ) : (
+          <Image
+            source={{ uri: post.picturePath }}
+            style={{
+              width: "100%",
+              aspectRatio: ratio,
+              borderRadius: 15,
+              resizeMode: resizeModeCover ? "cover" : "contain",
+              backgroundColor: GlobalStyles.colors.primary500,
+              borderWidth: 1,
+              borderColor: GlobalStyles.colors.primary500,
+            }}
+          />
+        )}
       </Pressable>
     );
   }

@@ -14,6 +14,8 @@ import {
 import { isOnline } from "../network/connectivityService";
 import { queueOrProcessWrite } from "../sync/outboxSyncService";
 
+const profileMemoryCache = new Map();
+
 function fail(error) {
   return {
     ok: false,
@@ -52,6 +54,39 @@ function initialsFromName(name) {
     .join("");
 }
 
+function normalizeName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function inferSenderLabel({
+  lastSenderId,
+  lastSenderName,
+  fallbackContactName,
+  currentUserId,
+  currentUserName,
+  lastMessage,
+}) {
+  if (lastSenderId) {
+    return lastSenderId === currentUserId
+      ? "You"
+      : lastSenderName || fallbackContactName || "Contact";
+  }
+
+  const waveMatch = String(lastMessage || "").match(/^👋\s*Wave from\s+(.+)$/i);
+  if (waveMatch?.[1]) {
+    const wavedFromName = normalizeName(waveMatch[1]);
+    if (wavedFromName && wavedFromName === normalizeName(currentUserName)) {
+      return "You";
+    }
+    return lastSenderName || waveMatch[1] || fallbackContactName || "Contact";
+  }
+
+  return lastSenderName || fallbackContactName || "Contact";
+}
+
 async function resolveParticipantProfiles(threads = [], currentUserId) {
   const participantIds = new Set();
   threads.forEach((item) => {
@@ -65,8 +100,13 @@ async function resolveParticipantProfiles(threads = [], currentUserId) {
   const profileMap = new Map();
   await Promise.all(
     [...participantIds].map(async (id) => {
+      if (profileMemoryCache.has(id)) {
+        profileMap.set(id, profileMemoryCache.get(id));
+        return;
+      }
       const profileResult = await getUserProfile(id);
       if (profileResult.ok && profileResult.data) {
+        profileMemoryCache.set(id, profileResult.data);
         profileMap.set(id, profileResult.data);
       }
     })
@@ -75,7 +115,7 @@ async function resolveParticipantProfiles(threads = [], currentUserId) {
   return profileMap;
 }
 
-async function enrichThreads(threads = [], currentUserId) {
+async function enrichThreads(threads = [], currentUserId, currentUserName = "") {
   const profileMap = await resolveParticipantProfiles(threads, currentUserId);
 
   return threads.map((item) => {
@@ -92,11 +132,15 @@ async function enrichThreads(threads = [], currentUserId) {
     const contactInitials = initialsFromName(contactName) || "CU";
 
     const lastSenderId = item?.lastSenderId || "";
-    const senderLabel =
-      lastSenderId && lastSenderId === currentUserId
-        ? "You"
-        : item?.lastSenderName || otherProfile?.fullName || contactName;
     const lastMessage = String(item?.lastMessage || item?.lastMessageText || "").trim();
+    const senderLabel = inferSenderLabel({
+      lastSenderId,
+      lastSenderName: item?.lastSenderName || "",
+      fallbackContactName: otherProfile?.fullName || contactName,
+      currentUserId,
+      currentUserName,
+      lastMessage,
+    });
     const preview =
       lastMessage && senderLabel
         ? senderLabel + ": " + lastMessage
@@ -116,7 +160,7 @@ async function enrichThreads(threads = [], currentUserId) {
   });
 }
 
-export async function fetchThreads(userId, limitCount = 100) {
+export async function fetchThreads(userId, limitCount = 100, options = {}) {
   if (!userId) {
     return fail({ code: "missing_user_id", message: "userId is required" });
   }
@@ -155,7 +199,11 @@ export async function fetchThreads(userId, limitCount = 100) {
     );
   }
 
-  const enriched = await enrichThreads(remoteResult.data || [], userId);
+  const enriched = await enrichThreads(
+    remoteResult.data || [],
+    userId,
+    options.currentUserName || ""
+  );
 
   enriched.forEach((item) => {
     if (item.id) {

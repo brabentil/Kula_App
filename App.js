@@ -1,9 +1,9 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState, useContext } from "react";
-import { Alert, AppState, Linking, LogBox, StyleSheet, View } from "react-native";
+import { Alert, AppState, Image, Linking, LogBox, StyleSheet, Text, View } from "react-native";
 import AuthNavigation from "./AuthNavigation";
 import AuthContentProvider, { AuthContext } from "./store/auth-context";
-import { GlobalStyles } from "./constants/Styles";
+import { GlobalStyles, KULA } from "./constants/Styles";
 import Loader from "./components/UI/Loader";
 import { initializeSchema, runLocalDbSmokeTest } from "./services/localdb/schema";
 import { createCollectionDocument } from "./services/firebase/firestoreService";
@@ -147,15 +147,22 @@ export default function App() {
 
     if (isTryingLogin) {
       return (
-        <View
-          style={{
-            flex: 1,
-            justifyContent: "center",
-            alignItems: "center",
-            backgroundColor: "#FAF3E0",
-          }}
-        >
-          <Loader color="#1D9E75" />
+        <View style={styles.loadingScreen}>
+          <View style={styles.loadingBlobTopRight} />
+          <View style={styles.loadingBlobBottomLeft} />
+
+          <View style={styles.loadingCard}>
+            <View style={styles.loadingLogoWrap}>
+              <Image
+                source={require("./assets/kula-loading-mark-dark.png")}
+                style={styles.loadingLogo}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={styles.loadingTitle}>Kula</Text>
+            <Text style={styles.loadingSubtitle}>Preparing your community space</Text>
+            <Loader color={KULA.teal} />
+          </View>
         </View>
       );
     }
@@ -177,5 +184,73 @@ const styles = StyleSheet.create({
     backgroundColor: GlobalStyles.colors.primary,
     alignItems: "center",
     justifyContent: "center",
+  },
+  loadingScreen: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: KULA.cream,
+    overflow: "hidden",
+  },
+  loadingBlobTopRight: {
+    position: "absolute",
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    top: -90,
+    right: -90,
+    backgroundColor: "rgba(193,96,58,0.09)",
+  },
+  loadingBlobBottomLeft: {
+    position: "absolute",
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    bottom: -100,
+    left: -80,
+    backgroundColor: "rgba(29,158,117,0.09)",
+  },
+  loadingCard: {
+    width: "82%",
+    maxWidth: 340,
+    backgroundColor: KULA.white,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: KULA.border,
+    alignItems: "center",
+    paddingVertical: 30,
+    paddingHorizontal: 22,
+    shadowColor: KULA.brown,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.09,
+    shadowRadius: 20,
+    elevation: 6,
+  },
+  loadingLogoWrap: {
+    width: 124,
+    height: 124,
+    borderRadius: 26,
+    backgroundColor: "#EAF8F2",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  loadingLogo: {
+    width: 108,
+    height: 108,
+  },
+  loadingTitle: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: KULA.brown,
+    letterSpacing: -0.5,
+    marginBottom: 6,
+  },
+  loadingSubtitle: {
+    fontSize: 14,
+    color: KULA.muted,
+    textAlign: "center",
+    marginBottom: 16,
   },
 });

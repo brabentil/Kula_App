@@ -1,4 +1,7 @@
-import { getCollectionDocuments } from "../firebase/firestoreService";
+import {
+  createCollectionDocument,
+  getCollectionDocuments,
+} from "../firebase/firestoreService";
 import { getUiState, upsertUiState } from "../localdb/cacheRepository";
 import { isOnline } from "../network/connectivityService";
 
@@ -19,10 +22,13 @@ function fail(error) {
 
 function normalizePost(item = {}, index = 0) {
   const id = item.id || item._id || "post_" + index;
+  const mediaType = item.mediaType || item.fileType || "image";
   return {
     ...item,
     id,
     _id: id,
+    mediaType,
+    fileType: mediaType,
   };
 }
 
@@ -111,4 +117,46 @@ export async function fetchUserPosts(userId, { maxResults = 40 } = {}) {
   }
 
   return ok(posts, "remote");
+}
+
+export async function createPostEntry({
+  userId,
+  description = "",
+  picturePath = "",
+  fileType = "image",
+  mediaType = "",
+  mediaWidth = null,
+  mediaHeight = null,
+  storagePath = "",
+  userFullName = "",
+  userPicturePath = "",
+  userInitials = "",
+} = {}) {
+  if (!userId) {
+    return fail({ code: "missing_user_id", message: "userId is required" });
+  }
+
+  const normalizedMediaType = String(mediaType || fileType || "image");
+  const payload = {
+    userId: String(userId),
+    description: String(description || "").trim(),
+    picturePath: String(picturePath || "").trim(),
+    fileType: normalizedMediaType,
+    mediaType: normalizedMediaType,
+    mediaWidth: Number(mediaWidth || 0) || null,
+    mediaHeight: Number(mediaHeight || 0) || null,
+    storagePath: String(storagePath || "").trim(),
+    userFullName: String(userFullName || "").trim(),
+    userPicturePath: String(userPicturePath || "").trim(),
+    userInitials: String(userInitials || "").trim(),
+    likes: [],
+    comments: [],
+  };
+
+  const createResult = await createCollectionDocument("posts", payload);
+  if (!createResult.ok) {
+    return fail(createResult.error);
+  }
+
+  return ok({ id: createResult.data, ...payload }, "remote");
 }

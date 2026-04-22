@@ -12,6 +12,7 @@ import Button from "../Button";
 import InputField from "../InputField";
 import { AuthContext } from "../../store/auth-context";
 import { KULA } from "../../constants/Styles";
+import { getFriendlyAuthErrorMessage } from "../../utils/authErrorMessage";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -20,6 +21,7 @@ const LoginForm = ({ navigation }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const [isSendingEmailLink, setIsSendingEmailLink] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const googleClientConfig = {
     expoClientId: process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID || undefined,
@@ -50,6 +52,11 @@ const LoginForm = ({ navigation }) => {
 
       if (response.type !== "success") {
         if (isMounted) {
+          if (response.type === "cancel") {
+            setFormError("Google sign-in was cancelled.");
+          } else if (response.type === "error") {
+            setFormError("Google sign-in failed. Please try again.");
+          }
           setIsGoogleSigningIn(false);
         }
         return;
@@ -66,10 +73,7 @@ const LoginForm = ({ navigation }) => {
       });
 
       if (!googleResult.ok) {
-        Alert.alert(
-          "Google Sign-In Failed",
-          googleResult.error?.message || "Unable to sign in with Google right now."
-        );
+        setFormError(getFriendlyAuthErrorMessage(googleResult.error));
       }
 
       if (isMounted) {
@@ -86,13 +90,17 @@ const LoginForm = ({ navigation }) => {
 
   const LoginFormSchema = yup.object().shape({
     email: yup.string().email().required("Email address is required."),
-    password: yup.string().min(8, "Password must have at least 8 characters."),
+    password: yup
+      .string()
+      .required("Password is required.")
+      .min(8, "Password must have at least 8 characters."),
   });
 
   async function onLogin(email, password) {
     if (isSubmitting) {
       return;
     }
+    setFormError("");
     setIsSubmitting(true);
     const loginResult = await authCtx.authenticate(
       String(email || "").trim().toLowerCase(),
@@ -100,10 +108,7 @@ const LoginForm = ({ navigation }) => {
     );
     setIsSubmitting(false);
     if (!loginResult.ok) {
-      Alert.alert(
-        "Login Failed",
-        loginResult.error?.message || "Something went wrong."
-      );
+      setFormError(getFriendlyAuthErrorMessage(loginResult.error));
     }
   }
 
@@ -151,6 +156,11 @@ const LoginForm = ({ navigation }) => {
     setIsGoogleSigningIn(true);
     const result = await promptAsync();
     if (result.type !== "success") {
+      if (result.type === "cancel") {
+        setFormError("Google sign-in was cancelled.");
+      } else {
+        setFormError("Google sign-in failed. Please try again.");
+      }
       setIsGoogleSigningIn(false);
     }
   }
@@ -178,7 +188,10 @@ const LoginForm = ({ navigation }) => {
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Email address</Text>
               <InputField
-                onChangeText={handleChange("email")}
+                onChangeText={(value) => {
+                  setFormError("");
+                  handleChange("email")(value);
+                }}
                 onBlur={handleBlur("email")}
                 value={values.email}
                 placeholder="you@example.com"
@@ -201,7 +214,10 @@ const LoginForm = ({ navigation }) => {
               <Text style={styles.fieldLabel}>Password</Text>
               <InputField
                 textContentType="password"
-                onChangeText={handleChange("password")}
+                onChangeText={(value) => {
+                  setFormError("");
+                  handleChange("password")(value);
+                }}
                 onBlur={handleBlur("password")}
                 value={values.password}
                 placeholder="Min. 8 characters"
@@ -232,6 +248,7 @@ const LoginForm = ({ navigation }) => {
 
             {/* Login button */}
             <View style={styles.buttonWrapper}>
+              {!!formError && <Text style={styles.formErrorText}>{formError}</Text>}
               <Button
                 title="Sign in"
                 onPress={handleSubmit}
@@ -301,6 +318,12 @@ const styles = StyleSheet.create({
   },
   buttonWrapper: {
     marginBottom: 20,
+  },
+  formErrorText: {
+    fontSize: 13,
+    color: KULA.error,
+    marginBottom: 10,
+    textAlign: "center",
   },
   buttonWrapperAlt: {
     marginBottom: 16,
