@@ -2,7 +2,6 @@ import { getCollectionDocuments, upsertCollectionDocumentById } from "../firebas
 import { getUiState, upsertUiState } from "../localdb/cacheRepository";
 import { isOnline } from "../network/connectivityService";
 import { queueOrProcessWrite } from "../sync/outboxSyncService";
-import { v4 as uuidv4 } from "uuid";
 
 function ok(data, source = "remote") {
   return { ok: true, data, error: null, source };
@@ -65,6 +64,10 @@ function cachePosts(stateKey, posts = []) {
     posts,
     updatedAt: Date.now(),
   });
+}
+
+function createLocalPostId() {
+  return "post_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10);
 }
 
 function mergePostIntoCache(stateKey, postPayload) {
@@ -155,7 +158,7 @@ export async function createPostEntry({
   }
 
   const normalizedMediaType = String(mediaType || fileType || "image");
-  const resolvedPostId = String(postId || uuidv4());
+  const resolvedPostId = String(postId || createLocalPostId());
   const payload = {
     userId: String(userId),
     description: String(description || "").trim(),
